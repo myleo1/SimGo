@@ -215,7 +215,7 @@ docker compose logs -f
 docker pull ghcr.io/myleo1/cellbridge:latest
 
 # 或指定版本
-docker pull ghcr.io/myleo1/cellbridge:v1.0.0
+docker pull ghcr.io/myleo1/cellbridge:1.0.0
 ```
 
 然后在 `docker-compose.yml` 中将 `build` 部分替换为：
