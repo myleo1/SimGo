@@ -1,0 +1,21 @@
+# 生成的部署文件
+docker-compose.yml
+duckdns-update.sh
+.cellbridge-manifest
+
+# 证书、日志和运行时数据
+certs/
+logs/
+spool/
+
+# Python
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
+
+# IDE
+*.iml
+.idea/
+.vscode/
