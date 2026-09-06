@@ -1,5 +1,4 @@
 # 生成的部署文件
-docker-compose.yml
 duckdns-update.sh
 .cellbridge-manifest
 

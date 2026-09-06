@@ -1,0 +1,33 @@
+services:
+  cellbridge:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: cellbridge
+    restart: unless-stopped
+    privileged: true
+    network_mode: host
+    devices:
+      - __AT_PORT__:/dev/ttyUSB2
+      - /dev/snd:/dev/snd
+    volumes:
+      - ./config:/etc/asterisk/templates:ro
+      - ./scripts:/etc/asterisk/scripts:ro
+      - ./certs:/etc/asterisk/certs:ro
+      - ./logs:/var/log/asterisk
+      - ./spool:/var/spool/asterisk
+    environment:
+      - PJSIP_EXTEN=${PJSIP_EXTEN}
+      - PJSIP_SECRET=${PJSIP_SECRET}
+      - LOCAL_NET=${LOCAL_NET}
+      - EXTERNAL_MEDIA_ADDRESS=${EXTERNAL_MEDIA_ADDRESS}
+      - AT_PORT=/dev/ttyUSB2
+      - ALSA_DEV=${ALSA_DEV}
+      - TG_BOT_TOKEN=${TG_BOT_TOKEN}
+      - TG_CHAT_ID=${TG_CHAT_ID}
+      - TG_SOCKS5_PROXY=${TG_SOCKS5_PROXY}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
