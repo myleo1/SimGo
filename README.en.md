@@ -23,6 +23,57 @@ Different Linux distros ship vastly different Asterisk versions, and compiling c
 - **Clean separation**: Config files stay isolated from the host system
 - **Easy maintenance**: Upgrade, rollback, backup — all straightforward
 
+## Architecture
+
+```mermaid
+graph TB
+    subgraph "Phone"
+        GW[Groundwire<br/>SIP Client]
+    end
+
+    subgraph "Internet"
+        TG[Telegram Bot API]
+        WX[WeChat Work API<br/>Optional]
+    end
+
+    subgraph "Host (Linux)"
+        subgraph "Docker Container (SimGo)"
+            AS[Asterisk]
+            PS[PJSIP<br/>TLS 52060]
+            QC[chan-quectel<br/>UAC Audio]
+            BOT[telegram_bot.py<br/>Notifications & Commands]
+            SMS[sms_notify.py<br/>SMS Notifications]
+        end
+        F2B[Fail2ban<br/>Protection]
+    end
+
+    subgraph "Hardware"
+        EC20[EC20 4G Module]
+        SIM[SIM Card]
+    end
+
+    subgraph "Network"
+        4G[4G Cellular]
+        PSTN[PSTN / Carrier]
+    end
+
+    GW <-->|"SIP over TLS<br/>SRTP"| AS
+    AS <--> PS
+    AS <--> QC
+    BOT <-->|"HTTPS"| TG
+    SMS <-->|"HTTPS"| WX
+    QC <-->|"USB<br/>AT + Audio"| EC20
+    EC20 <--> SIM
+    EC20 <-->|"4G"| 4G
+    4G <--> PSTN
+    PSTN <-->|"Calls/SMS"| SIM
+    F2B -.->|"Ban Brute Force"| AS
+
+    style AS fill:#4a90d9,color:#fff
+    style EC20 fill:#e74c3c,color:#fff
+    style GW fill:#2ecc71,color:#fff
+```
+
 ## Hardware Requirements
 
 ### EC20 Module

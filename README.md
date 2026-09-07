@@ -23,6 +23,57 @@
 - **配置隔离**：配置文件与系统分离，不会污染宿主机
 - **易于维护**：升级、回滚、备份都很方便
 
+## 架构
+
+```mermaid
+graph TB
+    subgraph "手机"
+        GW[Groundwire<br/>SIP 客户端]
+    end
+
+    subgraph "互联网"
+        TG[Telegram Bot API]
+        WX[企业微信 API<br/>可选]
+    end
+
+    subgraph "宿主机 (Linux)"
+        subgraph "Docker 容器 (SimGo)"
+            AS[Asterisk]
+            PS[PJSIP<br/>TLS 52060]
+            QC[chan-quectel<br/>UAC 音频]
+            BOT[telegram_bot.py<br/>通知 & 命令]
+            SMS[sms_notify.py<br/>短信通知]
+        end
+        F2B[Fail2ban<br/>防护]
+    end
+
+    subgraph "硬件"
+        EC20[EC20 4G 模块]
+        SIM[SIM 卡]
+    end
+
+    subgraph "网络"
+        4G[4G 蜂窝网络]
+        PSTN[PSTN / 运营商]
+    end
+
+    GW <-->|"SIP over TLS<br/>SRTP"| AS
+    AS <--> PS
+    AS <--> QC
+    BOT <-->|"HTTPS"| TG
+    SMS <-->|"HTTPS"| WX
+    QC <-->|"USB<br/>AT + 音频"| EC20
+    EC20 <--> SIM
+    EC20 <-->|"4G"| 4G
+    4G <--> PSTN
+    PSTN <-->|"来电/短信"| SIM
+    F2B -.->|"封禁爆破 IP"| AS
+
+    style AS fill:#4a90d9,color:#fff
+    style EC20 fill:#e74c3c,color:#fff
+    style GW fill:#2ecc71,color:#fff
+```
+
 ## 硬件要求
 
 ### EC20 模块
