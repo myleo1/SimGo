@@ -154,10 +154,10 @@ echo ""
 
 # --- 步骤 8: 企业微信 ---
 echo "--- 步骤 8/10: 企业微信（可选）---"
-read -p "企业 Webhook API (回车跳过): " WECHAT_WORK_API
+read -p "企业微信 WebHook API (回车跳过): " WECHAT_WORK_API
 if [ -n "$WECHAT_WORK_API" ]; then
-    read -p "企业 Token: " WECHAT_WORK_TOKEN
-    read -p "企业接收人: " WECHAT_WORK_TO
+    read -p "企业微信 WebHook Token: " WECHAT_WORK_TOKEN
+    read -p "企业微信接收人: " WECHAT_WORK_TO
 else
     WECHAT_WORK_TOKEN=""
     WECHAT_WORK_TO=""
