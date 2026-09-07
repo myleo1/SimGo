@@ -1,4 +1,4 @@
-# CellBridge
+# SimGo
 
 > 让 SIM 卡在家也能远程接打电话 — 基于 EC20 + Asterisk 的容器化模块中继方案
 
@@ -46,7 +46,7 @@
 
 ## 模块初始化
 
-在部署 CellBridge 之前，需要先对 EC20 模块进行初始化配置。**这一步需要手动完成**，请严格按照以下步骤操作。
+在部署 SimGo 之前，需要先对 EC20 模块进行初始化配置。**这一步需要手动完成**，请严格按照以下步骤操作。
 
 ### 步骤 1：找到 AT 命令端口
 
@@ -167,8 +167,8 @@ usb-Quectel_Wireless_EC20-if02 -> ../../ttyUSB2
 ### 快速部署
 
 ```bash
-git clone https://github.com/myleo1/CellBridge.git
-cd CellBridge
+git clone https://github.com/myleo1/SimGo.git
+cd SimGo
 chmod +x setup.sh
 ./setup.sh
 ```
@@ -212,18 +212,18 @@ docker compose logs -f
 
 ```bash
 # 拉取最新版本（public repo，无需登录）
-docker pull ghcr.io/myleo1/cellbridge:latest
+docker pull ghcr.io/myleo1/simgo:latest
 
 # 或指定版本
-docker pull ghcr.io/myleo1/cellbridge:1.0.0
+docker pull ghcr.io/myleo1/simgo:1.0.0
 ```
 
 然后在 `docker-compose.yml` 中将 `build` 部分替换为：
 
 ```yaml
 services:
-  cellbridge:
-    image: ghcr.io/myleo1/cellbridge:latest
+  simgo:
+    image: ghcr.io/myleo1/simgo:latest
 ```
 
 ### GitHub Actions 自动构建
@@ -338,7 +338,7 @@ Bot 支持：
 
 ```bash
 # 查看模块状态
-docker exec cellbridge asterisk -rx "quectel show devices"
+docker exec simgo asterisk -rx "quectel show devices"
 ```
 
 ## 常见问题
@@ -372,7 +372,7 @@ done
 ## 目录结构
 
 ```
-CellBridge/
+SimGo/
 ├── config/                 # Asterisk 配置文件模板
 │   ├── pjsip.conf
 │   ├── extensions.conf

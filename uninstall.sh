@@ -2,7 +2,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-MANIFEST="${SCRIPT_DIR}/.cellbridge-manifest"
+MANIFEST="${SCRIPT_DIR}/.simgo-manifest"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -12,7 +12,7 @@ NC='\033[0m'
 info()  { echo -e "${GREEN}[INFO]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 
-echo "CellBridge 卸载"
+echo "SimGo 卸载"
 echo "==============="
 echo ""
 
@@ -27,13 +27,13 @@ echo "停止容器..."
 docker compose down -v 2>/dev/null || true
 echo ""
 
-# 3. 删除 cron 条目（只删带 # CellBridge 标记的行）
+# 3. 删除 cron 条目（只删带 # SimGo 标记的行）
 echo "清理 cron..."
-if crontab -l 2>/dev/null | grep -q "# CellBridge"; then
-    crontab -l 2>/dev/null | grep -v "# CellBridge" | crontab - 2>/dev/null || true
+if crontab -l 2>/dev/null | grep -q "# SimGo"; then
+    crontab -l 2>/dev/null | grep -v "# SimGo" | crontab - 2>/dev/null || true
     info "DuckDNS cron 已删除"
 else
-    info "未找到 CellBridge cron 条目"
+    info "未找到 SimGo cron 条目"
 fi
 echo ""
 

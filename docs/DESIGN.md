@@ -1,4 +1,4 @@
-# CellBridge 详细设计文档
+# SimGo 详细设计文档
 
 ## 1. 架构概览
 
@@ -38,7 +38,7 @@
 ## 2. 目录结构
 
 ```
-CellBridge/
+SimGo/
 ├── config/
 │   ├── pjsip.conf              # PJSIP 配置（模板）
 │   ├── extensions.conf         # 主拨号计划（模板）
@@ -188,7 +188,7 @@ RUN cp /tmp/chan_quectel.so /usr/lib/$(dpkg-architecture -qDEB_HOST_MULTIARCH)/a
 
 ### 4.4 关键差异（对比 kafuneri）
 
-| 项目 | kafuneri | CellBridge |
+| 项目 | kafuneri | SimGo |
 |------|----------|------------|
 | chan-quectel 来源 | IchthysMaranatha | myleo1（含 bug 修复） |
 | SIP 协议 | IAX2 | PJSIP (TLS + SRTP) |
@@ -451,11 +451,11 @@ SOCKS5_PROXY=__TG_SOCKS5_PROXY__
 
 ```yaml
 services:
-  cellbridge:
+  simgo:
     build:
       context: .
       dockerfile: docker/Dockerfile
-    container_name: cellbridge
+    container_name: simgo
     restart: unless-stopped
     privileged: true
     network_mode: host
@@ -592,10 +592,10 @@ fi
 Cron 配置（由 setup.sh 安装）：
 
 ```cron
-*/5 * * * * /path/to/CellBridge/duckdns-update.sh >/dev/null 2>&1 # CellBridge
+*/5 * * * * /path/to/SimGo/duckdns-update.sh >/dev/null 2>&1 # SimGo
 ```
 
-> **注意**：`/path/to/CellBridge/` 由 setup.sh 动态替换为实际部署目录。
+> **注意**：`/path/to/SimGo/` 由 setup.sh 动态替换为实际部署目录。
 
 ## 12. Fail2ban 防护
 
@@ -672,7 +672,7 @@ setup.sh 负责：
 2. 将 filter 和 jail 配置文件安装到 `/etc/fail2ban/`
 3. 重启 fail2ban 服务
 
-> **注意**：fail2ban 和 nftables 是系统级工具，CellBridge 卸载时只删除自己的 filter/jail 配置，不卸载 fail2ban 本身。
+> **注意**：fail2ban 和 nftables 是系统级工具，SimGo 卸载时只删除自己的 filter/jail 配置，不卸载 fail2ban 本身。
 
 ## 13. .gitignore
 
@@ -680,7 +680,7 @@ setup.sh 负责：
 # 生成的部署文件（由 setup.sh 生成）
 docker-compose.yml
 duckdns-update.sh
-.cellbridge-manifest
+.simgo-manifest
 
 # TLS 证书
 certs/
@@ -719,7 +719,7 @@ __pycache__/
 14. 安装 fail2ban + nftables（如未安装），安装 filter 和 jail，重启 fail2ban
 15. 创建日志目录（`./logs`）
 16. 生成 docker-compose.yml
-17. 生成 .cellbridge-manifest（记录所有宿主机变更，供 uninstall.sh 使用）
+17. 生成 .simgo-manifest（记录所有宿主机变更，供 uninstall.sh 使用）
 18. 提示启动命令
 ```
 
@@ -731,40 +731,40 @@ __pycache__/
 | `certs/asterisk.pem` | Let's Encrypt TLS 证书（DuckDNS DNS-01） |
 | `certs/asterisk.key` | TLS 私钥 |
 | `duckdns-update.sh` | DuckDNS IP 自动更新脚本（安装 cron 每 5 分钟更新） |
-| `.cellbridge-manifest` | 安装清单，记录所有宿主机变更（cron 条目、生成的文件），供 uninstall.sh 使用 |
+| `.simgo-manifest` | 安装清单，记录所有宿主机变更（cron 条目、生成的文件），供 uninstall.sh 使用 |
 
 ### 14.3 宿主机安装清单
 
 setup.sh 执行前会打印以下清单，用户确认后继续：
 
 ```
-CellBridge 将在宿主机上安装/变更以下内容：
+SimGo 将在宿主机上安装/变更以下内容：
 
 [Docker]
   - 拉取镜像：ubuntu:24.04（构建时）
-  - 创建容器：cellbridge（Asterisk + Python 脚本）
+  - 创建容器：simgo（Asterisk + Python 脚本）
   - bind mount：logs/, spool/
 
 [acme.sh]
   - 安装 acme.sh（如未安装）
   - 签发 Let's Encrypt TLS 证书到 ./certs/
-  - acme.sh 自动注册续签 cron（宿主机 crontab，CellBridge 不管理卸载）
+  - acme.sh 自动注册续签 cron（宿主机 crontab，SimGo 不管理卸载）
 
 [fail2ban]
-  - 安装 fail2ban + nftables（如未安装，CellBridge 不管理卸载）
+  - 安装 fail2ban + nftables（如未安装，SimGo 不管理卸载）
   - 安装 asterisk-pjsip filter 和 jail
   - 重启 fail2ban 服务
 
 [宿主机 cron]
-  - 添加 DuckDNS IP 更新 cron（每 5 分钟，带 # CellBridge 标记）
+  - 添加 DuckDNS IP 更新 cron（每 5 分钟，带 # SimGo 标记）
 
 [部署目录]
-  - 生成：docker-compose.yml, duckdns-update.sh, logs/, .cellbridge-manifest
+  - 生成：docker-compose.yml, duckdns-update.sh, logs/, .simgo-manifest
 
 确认安装？[y/N]
 ```
 
-> **注意**：acme.sh 一旦安装，由 acme.sh 自身管理续签 cron，CellBridge 卸载时不会移除 acme.sh。
+> **注意**：acme.sh 一旦安装，由 acme.sh 自身管理续签 cron，SimGo 卸载时不会移除 acme.sh。
 
 ## 15. 参考与致谢
 
@@ -780,7 +780,7 @@ CellBridge 将在宿主机上安装/变更以下内容：
 ### 16.1 读取 manifest
 
 ```bash
-manifest=".cellbridge-manifest"
+manifest=".simgo-manifest"
 if [ ! -f "$manifest" ]; then
     echo "错误：未找到 ${manifest}，无法安全卸载" >&2
     exit 1
@@ -790,7 +790,7 @@ fi
 manifest 格式（每行一条记录）：
 
 ```
-# CellBridge uninstall manifest
+# SimGo uninstall manifest
 cron:*/5 * * * * /path/to/duckdns-update.sh
 file:./duckdns-update.sh
 file:./config/pjsip.conf
@@ -803,7 +803,7 @@ file:./scripts/bot.conf
 file:./docker-compose.yml
 file:/etc/fail2ban/filter.d/asterisk-pjsip.conf
 file:/etc/fail2ban/jail.d/asterisk-pjsip.local
-file:./.cellbridge-manifest
+file:./.simgo-manifest
 dir:./certs
 dir:./logs
 ```
@@ -811,16 +811,16 @@ dir:./logs
 ### 16.2 清理逻辑
 
 ```bash
-echo "CellBridge 卸载"
+echo "SimGo 卸载"
 echo "==============="
 
 # 1. 停止并删除容器和匿名卷
 echo "停止容器..."
 docker compose down -v 2>/dev/null || true
 
-# 2. 删除 cron 条目（只删带 # CellBridge 标记的行）
+# 2. 删除 cron 条目（只删带 # SimGo 标记的行）
 echo "清理 cron..."
-crontab -l 2>/dev/null | grep -v "# CellBridge" | crontab - 2>/dev/null || true
+crontab -l 2>/dev/null | grep -v "# SimGo" | crontab - 2>/dev/null || true
 
 # 3. 删除 manifest 中记录的文件和目录
 echo "删除文件..."
@@ -860,9 +860,9 @@ echo "如需卸载 fail2ban，请执行：apt remove fail2ban"
 
 | 原则 | 说明 |
 |------|------|
-| acme.sh 不卸载 | acme.sh 是系统级工具，可能被其他项目使用，CellBridge 只管自己签的证书 |
-| fail2ban 不卸载 | fail2ban 是系统级安全工具，CellBridge 只删除自己的 filter/jail 配置，然后重启 fail2ban |
-| cron 精确删除 | 只删带 `# CellBridge` 标记的行，不动用户其他 cron |
-| manifest 自删 | 最后一行删除 `.cellbridge-manifest` 自身 |
+| acme.sh 不卸载 | acme.sh 是系统级工具，可能被其他项目使用，SimGo 只管自己签的证书 |
+| fail2ban 不卸载 | fail2ban 是系统级安全工具，SimGo 只删除自己的 filter/jail 配置，然后重启 fail2ban |
+| cron 精确删除 | 只删带 `# SimGo` 标记的行，不动用户其他 cron |
+| manifest 自删 | 最后一行删除 `.simgo-manifest` 自身 |
 | 容器和卷全清 | `docker compose down -v` 删除容器和匿名卷 |
 | 挂载的源目录不删 | `./config/`、`./scripts/`、`./certs/`、`./logs/` 是用户部署目录下的文件，由 manifest 的 file/dir 记录逐个清理 |

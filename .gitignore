@@ -1,6 +1,7 @@
 # 生成的部署文件
+/docker-compose.yml
 duckdns-update.sh
-.cellbridge-manifest
+.simgo-manifest
 
 # 证书、日志和运行时数据
 certs/

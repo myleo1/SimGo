@@ -2,12 +2,12 @@
 set -e
 
 # ============================================================
-# CellBridge 交互式部署脚本
+# SimGo 交互式部署脚本
 # ============================================================
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CERT_DIR="${SCRIPT_DIR}/certs"
-MANIFEST="${SCRIPT_DIR}/.cellbridge-manifest"
+MANIFEST="${SCRIPT_DIR}/.simgo-manifest"
 
 # 颜色
 RED='\033[0;31m'
@@ -24,7 +24,7 @@ error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 # ============================================================
 
 echo "========================================="
-echo "  CellBridge 部署向导"
+echo "  SimGo 部署向导"
 echo "========================================="
 echo ""
 
@@ -189,29 +189,29 @@ echo ""
 # ============================================================
 
 echo "========================================="
-echo "  CellBridge 安装清单"
+echo "  SimGo 安装清单"
 echo "========================================="
 echo ""
 echo "[Docker]"
 echo "  - 拉取镜像：ubuntu:24.04（构建时）"
-echo "  - 创建容器：cellbridge（Asterisk + Python 脚本）"
+echo "  - 创建容器：simgo（Asterisk + Python 脚本）"
 echo "  - bind mount：logs/, spool/"
 echo ""
 echo "[acme.sh]"
 echo "  - 安装 acme.sh（如未安装）"
 echo "  - 签发 Let's Encrypt TLS 证书到 ${CERT_DIR}/"
-echo "  - acme.sh 自动注册续签 cron（宿主机 crontab，CellBridge 不管理卸载）"
+echo "  - acme.sh 自动注册续签 cron（宿主机 crontab，SimGo 不管理卸载）"
 echo ""
 echo "[fail2ban]"
-echo "  - 安装 fail2ban + nftables（如未安装，CellBridge 不管理卸载）"
+echo "  - 安装 fail2ban + nftables（如未安装，SimGo 不管理卸载）"
 echo "  - 安装 asterisk-pjsip filter 和 jail"
 echo "  - 重启 fail2ban 服务"
 echo ""
 echo "[宿主机 cron]"
-echo "  - 添加 DuckDNS IP 更新 cron（每 5 分钟，带 # CellBridge 标记）"
+echo "  - 添加 DuckDNS IP 更新 cron（每 5 分钟，带 # SimGo 标记）"
 echo ""
 echo "[部署目录]"
-echo "  - 生成：docker-compose.yml, duckdns-update.sh, logs/, .cellbridge-manifest"
+echo "  - 生成：docker-compose.yml, duckdns-update.sh, logs/, .simgo-manifest"
 echo ""
 read -p "确认安装？[y/N] " CONFIRM
 if [ "$CONFIRM" != "y" ] && [ "$CONFIRM" != "Y" ]; then
@@ -268,8 +268,8 @@ DUCKEOF
 chmod +x "${SCRIPT_DIR}/duckdns-update.sh"
 
 # 添加 cron（避免重复）
-CRON_LINE="*/5 * * * * ${SCRIPT_DIR}/duckdns-update.sh >/dev/null 2>&1 # CellBridge"
-if ! crontab -l 2>/dev/null | grep -q "# CellBridge"; then
+CRON_LINE="*/5 * * * * ${SCRIPT_DIR}/duckdns-update.sh >/dev/null 2>&1 # SimGo"
+if ! crontab -l 2>/dev/null | grep -q "# SimGo"; then
     (crontab -l 2>/dev/null; echo "$CRON_LINE") | crontab -
     info "DuckDNS cron 已添加"
 else
@@ -293,7 +293,7 @@ if ! command -v nft &>/dev/null; then
     apt-get update && apt-get install -y nftables
 fi
 
-info "安装 CellBridge fail2ban filter..."
+info "安装 SimGo fail2ban filter..."
 mkdir -p /etc/fail2ban/filter.d
 cat > /etc/fail2ban/filter.d/asterisk-pjsip.conf <<'FILTEREOF'
 [Definition]
@@ -304,7 +304,7 @@ failregex = ^.*res_pjsip/pjsip_distributor\.c: Request .* failed for '<HOST>:\d+
 ignoreregex =
 FILTEREOF
 
-info "安装 CellBridge fail2ban jail..."
+info "安装 SimGo fail2ban jail..."
 mkdir -p /etc/fail2ban/jail.d
 cat > /etc/fail2ban/jail.d/asterisk-pjsip.local <<JILEOF
 [asterisk-pjsip]
@@ -361,18 +361,18 @@ info "docker-compose.yml 已生成"
 echo ""
 
 # ============================================================
-# 步骤 17: 生成 .cellbridge-manifest
+# 步骤 17: 生成 .simgo-manifest
 # ============================================================
 
 info "生成安装清单..."
 cat > "$MANIFEST" <<MANEOF
-# CellBridge uninstall manifest
+# SimGo uninstall manifest
 cron:*/5 * * * * ${SCRIPT_DIR}/duckdns-update.sh
 file:${SCRIPT_DIR}/duckdns-update.sh
 file:${SCRIPT_DIR}/docker-compose.yml
 file:/etc/fail2ban/filter.d/asterisk-pjsip.conf
 file:/etc/fail2ban/jail.d/asterisk-pjsip.local
-file:${SCRIPT_DIR}/.cellbridge-manifest
+file:${SCRIPT_DIR}/.simgo-manifest
 dir:${CERT_DIR}
 dir:${SCRIPT_DIR}/logs
 MANEOF
@@ -387,7 +387,7 @@ echo "========================================="
 echo "  安装完成！"
 echo "========================================="
 echo ""
-echo "启动 CellBridge:"
+echo "启动 SimGo:"
 echo "  cd ${SCRIPT_DIR} && docker compose up -d"
 echo ""
 echo "查看日志:"

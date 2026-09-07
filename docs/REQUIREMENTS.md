@@ -1,4 +1,4 @@
-# CellBridge 需求文档
+# SimGo 需求文档
 
 ## 1. 项目背景
 
@@ -99,7 +99,7 @@ iOS 对 VoIP 推送有严格限制：
 - 日志持久化到宿主机
 - 支持模块热插拔（通过 `by-id` 设备路径）
 - **setup.sh**：交互式部署脚本，引导用户填写配置，安装 acme.sh/fail2ban，生成 docker-compose.yml
-- **uninstall.sh**：基于 manifest 的安全卸载，精确清理 CellBridge 安装的内容
+- **uninstall.sh**：基于 manifest 的安全卸载，精确清理 SimGo 安装的内容
 - **manifest 文件**：记录所有宿主机变更，供 uninstall.sh 使用
 
 ## 5. 来源与致谢

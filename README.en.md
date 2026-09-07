@@ -1,4 +1,4 @@
-# CellBridge
+# SimGo
 
 > Remote phone calls and SMS from anywhere — Containerized EC20 + Asterisk relay system
 
@@ -10,9 +10,9 @@ English | [中文](README.md)
 
 eSIM support in China is limited — changing SIM cards requires a carrier visit, and often fails. iPhones in China can only hold 2 eSIM profiles, making it impossible to add a 3rd when traveling abroad. iPhone 18+ may drop dual physical SIM slots entirely.
 
-CellBridge solves this by plugging a SIM card into a Quectel EC20 4G module connected via USB to a Linux host (Raspberry Pi, mini PC, NAS). Run a containerized Asterisk service, install a SIP client (like Groundwire) on your phone with just a data SIM, and you can make/receive calls and send/receive SMS from anywhere.
+SimGo solves this by plugging a SIM card into a Quectel EC20 4G module connected via USB to a Linux host (Raspberry Pi, mini PC, NAS). Run a containerized Asterisk service, install a SIP client (like Groundwire) on your phone with just a data SIM, and you can make/receive calls and send/receive SMS from anywhere.
 
-Since iOS doesn't receive Telegram push notifications in China, CellBridge supports WeChat Work (optional) as a fallback notification channel.
+Since iOS doesn't receive Telegram push notifications in China, SimGo supports WeChat Work (optional) as a fallback notification channel.
 
 ## Why Containerize
 
@@ -46,7 +46,7 @@ Specific model used: **EC20CEHDLGR08A03M1G**
 
 ## Module Initialization
 
-Before deploying CellBridge, initialize the EC20 module. **This must be done manually**.
+Before deploying SimGo, initialize the EC20 module. **This must be done manually**.
 
 ### Step 1: Find the AT Command Port
 
@@ -167,8 +167,8 @@ The `usb-Quectel_Wireless_EC20-if02` part is the AT port path you'll need during
 ### Quick Deploy
 
 ```bash
-git clone https://github.com/myleo1/CellBridge.git
-cd CellBridge
+git clone https://github.com/myleo1/SimGo.git
+cd SimGo
 chmod +x setup.sh
 ./setup.sh
 ```
@@ -212,18 +212,18 @@ Pull from GitHub Container Registry instead of building locally:
 
 ```bash
 # Latest version (public repo, no login needed)
-docker pull ghcr.io/myleo1/cellbridge:latest
+docker pull ghcr.io/myleo1/simgo:latest
 
 # Or specific version
-docker pull ghcr.io/myleo1/cellbridge:1.0.0
+docker pull ghcr.io/myleo1/simgo:1.0.0
 ```
 
 Then replace the `build` section in `docker-compose.yml` with:
 
 ```yaml
 services:
-  cellbridge:
-    image: ghcr.io/myleo1/cellbridge:latest
+  simgo:
+    image: ghcr.io/myleo1/simgo:latest
 ```
 
 ### GitHub Actions Auto-Build
@@ -261,7 +261,7 @@ Forked repos can also trigger builds manually from the Actions page.
 
 ### Security
 
-CellBridge enables TLS and SRTP by default:
+SimGo enables TLS and SRTP by default:
 
 - **SIP signaling encryption**: PJSIP over TLS (port 52060)
 - **Media stream encryption**: SRTP (encrypted voice data)
@@ -337,7 +337,7 @@ If the host has a firewall enabled, allow these ports:
 
 ```bash
 # Check module status
-docker exec cellbridge asterisk -rx "quectel show devices"
+docker exec simgo asterisk -rx "quectel show devices"
 ```
 
 ## FAQ
@@ -371,7 +371,7 @@ done
 ## Project Structure
 
 ```
-CellBridge/
+SimGo/
 ├── config/                 # Asterisk config templates
 │   ├── pjsip.conf
 │   ├── extensions.conf

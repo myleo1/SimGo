@@ -1,9 +1,9 @@
 services:
-  cellbridge:
+  simgo:
     build:
       context: .
       dockerfile: docker/Dockerfile
-    container_name: cellbridge
+    container_name: simgo
     restart: unless-stopped
     privileged: true
     network_mode: host

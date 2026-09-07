@@ -1,4 +1,4 @@
-# CellBridge 任务拆解
+# SimGo 任务拆解
 
 ## 阶段一：容器化基础
 
@@ -27,7 +27,7 @@
 - [x] 数据卷持久化（logs、spool bind mount）
 
 ### 1.4 .gitignore
-- [x] 排除生成的部署文件（docker-compose.yml, duckdns-update.sh, .cellbridge-manifest）
+- [x] 排除生成的部署文件（docker-compose.yml, duckdns-update.sh, .simgo-manifest）
 - [x] 排除 certs/ 目录
 - [x] 排除 logs/（运行时日志）
 - [x] 排除 Python 缓存文件
@@ -77,13 +77,13 @@
 - [x] 安装 filter 和 jail
 - [x] 重启 fail2ban 服务
 - [x] 创建日志目录
-- [x] 生成 .cellbridge-manifest
+- [x] 生成 .simgo-manifest
 - [x] 提供启动命令
 
 ### 3.2 uninstall.sh 卸载脚本
-- [x] 读取 .cellbridge-manifest，逐项清理
+- [x] 读取 .simgo-manifest，逐项清理
 - [x] docker compose down -v
-- [x] crontab 精确删除 CellBridge cron 条目
+- [x] crontab 精确删除 SimGo cron 条目
 - [x] 删除 manifest 中记录的文件和目录
 - [x] 删除 fail2ban filter 和 jail，重启 fail2ban
 - [x] 不卸载 acme.sh、fail2ban
@@ -133,7 +133,7 @@
 | P1 | GitHub Actions | 自动构建多架构镜像 |
 | P1 | duckdns-update.sh | 动态 DNS 更新 |
 | P1 | acme.sh + TLS 证书签发 | 安全通信 |
-| P1 | .cellbridge-manifest | 安装清单 |
+| P1 | .simgo-manifest | 安装清单 |
 | P1 | uninstall.sh | 安全卸载 |
 | P1 | fail2ban + nftables | SIP 爆破防护 |
 | P1 | README | 项目文档 |

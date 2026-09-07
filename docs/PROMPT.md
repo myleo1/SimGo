@@ -1,8 +1,8 @@
-# CellBridge Vibe Coding Prompt
+# SimGo Vibe Coding Prompt
 
 ## 项目概述
 
-CellBridge 是一个远程蜂窝电话网关：将 Quectel EC20 4G 模块通过 USB 连接到 Linux 主机，运行容器化的 Asterisk 服务，手机通过 SIP 客户端（Groundwire）实现远程接打电话、收发短信。
+SimGo 是一个远程蜂窝电话网关：将 Quectel EC20 4G 模块通过 USB 连接到 Linux 主机，运行容器化的 Asterisk 服务，手机通过 SIP 客户端（Groundwire）实现远程接打电话、收发短信。
 
 ## 已有文件（不要修改）
 
@@ -73,7 +73,7 @@ Multi-stage build。参考 DESIGN.md §4.2。
 
 #### 4. `.gitignore`
 
-参考 DESIGN.md §13。排除：docker-compose.yml、duckdns-update.sh、.cellbridge-manifest、certs/、logs/、__pycache__/、*.pyc、.DS_Store
+参考 DESIGN.md §13。排除：docker-compose.yml、duckdns-update.sh、.simgo-manifest、certs/、logs/、__pycache__/、*.pyc、.DS_Store
 
 ### P1 — 部署脚本（P0 完成后）
 
@@ -90,12 +90,12 @@ Multi-stage build。参考 DESIGN.md §4.2。
 15: 创建 logs/ 目录
 16: 生成 docker-compose.yml（从模板 sed 替换）
 17: 生成 docker-compose.yml（从模板 sed 替换）
-18: 生成 .cellbridge-manifest
+18: 生成 .simgo-manifest
 19: 提示启动命令
 
 关键逻辑：
 - 企业微信配置：只有用户填写时才追加到 bot.conf 和 docker-compose.yml
-- DuckDNS cron：`*/5 * * * * /path/to/duckdns-update.sh >/dev/null 2>&1 # CellBridge`
+- DuckDNS cron：`*/5 * * * * /path/to/duckdns-update.sh >/dev/null 2>&1 # SimGo`
 - fail2ban：检查是否已安装，未安装则 apt install；安装 filter 到 `/etc/fail2ban/filter.d/`，jail 到 `/etc/fail2ban/jail.d/`
 - manifest：记录所有宿主机变更（cron、文件、目录）
 
@@ -144,9 +144,9 @@ protocol = tcp,udp
 Manifest-based 卸载。参考 DESIGN.md §16。
 
 逻辑：
-1. 读取 .cellbridge-manifest
+1. 读取 .simgo-manifest
 2. `docker compose down -v`
-3. crontab 精确删除 `# CellBridge` 标记行
+3. crontab 精确删除 `# SimGo` 标记行
 4. 逐项删除 manifest 中的文件和目录
 5. 如果删了 fail2ban 配置，重启 fail2ban
 6. 不卸载 acme.sh、fail2ban、nftables
