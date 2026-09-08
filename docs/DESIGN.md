@@ -508,7 +508,6 @@ SCRIPT_DIR="/etc/asterisk/scripts"
 
 # 1. 初始化目录和文件
 mkdir -p /var/log/asterisk/cdr-csv
-touch /root/.asterisk_history
 
 # 2. 渲染配置模板（sed 替换占位符）
 render_config() {

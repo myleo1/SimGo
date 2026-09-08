@@ -1390,51 +1390,6 @@ def handle_message(update):
             clear_state(chat_id)
             return
 
-            device = state["device"]
-            phone = state["phone"]
-
-            if not text:
-                send_message(
-                    chat_id,
-                    "❌ 短信内容不能为空。",
-                )
-                return
-
-            try:
-                success, output = send_sms(
-                    device,
-                    phone,
-                    text,
-                )
-
-                if success:
-                    send_message(
-                        chat_id,
-                        "✅ <b>回复短信已发送</b>\n\n"
-                        f"📱 <b>模块：</b>"
-                        f"<code>{device}</code>\n"
-                        f"📞 <b>号码：</b>"
-                        f"<code>{phone}</code>\n\n"
-                        f"💬 <b>内容：</b>\n{text}",
-                    )
-                else:
-                    send_message(
-                        chat_id,
-                        "❌ <b>回复短信发送失败</b>\n\n"
-                        f"<code>{output}</code>",
-                    )
-
-            except Exception as e:
-                send_message(
-                    chat_id,
-                    "❌ <b>发送异常</b>\n\n"
-                    f"<code>{e}</code>",
-                )
-
-            clear_state(chat_id)
-
-            return
-
 
 def handle_update(update):
 
