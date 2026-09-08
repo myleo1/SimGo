@@ -283,7 +283,7 @@ docker compose logs -f
 docker pull ghcr.io/myleo1/simgo:latest
 
 # 或指定版本
-docker pull ghcr.io/myleo1/simgo:1.0.1
+docker pull ghcr.io/myleo1/simgo:1.1.0
 ```
 
 然后在 `docker-compose.yml` 中将 `build` 部分替换为：
