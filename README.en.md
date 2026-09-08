@@ -6,6 +6,23 @@ English | [中文](README.md)
 
 [![License: GPL v2](https://img.shields.io/badge/License-GPL_v2-blue.svg)](LICENSE)
 
+> [!WARNING]
+> **Legal Disclaimer**
+>
+> This project is intended for personal learning and research purposes only. It is limited to the deployer using their own SIM card registered under their real name, for personal use only to remotely access their own phone number.
+>
+> **The following uses are strictly prohibited:**
+> - Providing telephone relay services to third parties
+> - Renting or reselling this service
+> - Setting up public VOIP / SIP relay services
+> - Using for any illegal activities
+>
+> In accordance with Article 14 of the Anti-Telecommunications Network Fraud Law of the People's Republic of China, it is prohibited to illegally manufacture, sell, or provide equipment or software with the function of illegally connecting internet telephone calls to public telecommunications networks. Providing telephony voice relay services requires a national telecommunications business license, which individuals do not qualify for.
+>
+> Users who violate laws and regulations bear full responsibility for their actions, and the project author is not responsible. The author assumes no legal liability for any misuse.
+>
+> If this project is discovered to be used for illegal purposes, the author will actively cooperate with relevant authorities for lawful enforcement.
+
 ## Why
 
 eSIM support in China is limited — changing SIM cards requires a carrier visit, and often fails. iPhones in China can only hold 2 eSIM profiles, making it impossible to add a 3rd when traveling abroad. iPhone 18+ may drop dual physical SIM slots entirely.
