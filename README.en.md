@@ -25,7 +25,7 @@ English | [中文](README.md)
 
 ## Why
 
-eSIM support in China is limited — changing SIM cards requires a carrier visit, and often fails. iPhones in China can only hold 2 eSIM profiles, making it impossible to add a 3rd when traveling abroad. iPhone 18+ may drop dual physical SIM slots entirely.
+eSIM support in China is limited — changing SIM cards requires a carrier visit, and often fails. iPhones in China can only hold 2 eSIM profiles, making it impossible to add a 3rd when traveling abroad. iPhone Duo and future Apple ultra-thin models will drop dual physical SIM slots entirely, switching to dual eSIM.
 
 SimGo solves this by plugging a SIM card into a Quectel EC20 4G module connected via USB to a Linux host (Raspberry Pi, mini PC, NAS). Run a containerized Asterisk service, install a SIP client (like Groundwire) on your phone with just a data SIM, and you can make/receive calls and send/receive SMS from anywhere.
 
