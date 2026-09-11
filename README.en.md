@@ -394,6 +394,8 @@ Maintain it two ways:
    - Default output overwrites `<deploy-dir>/spool/contacts.csv`
 
 > Archive logs & troubleshooting: `logs/recordings-archive.log`. Uninstalling SimGo deletes local recordings and the contact table — **the archive directory is unaffected**.
+>
+> `logs/` is rotated daily on the host by `logrotate`: 7 copies for the recording archive log and 14 copies for Asterisk (`messages.log` / `queue_log`), gzip-compressed (config `/etc/logrotate.d/simgo`, removed on uninstall).
 
 ## Usage
 

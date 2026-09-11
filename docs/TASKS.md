@@ -137,6 +137,9 @@
 - [ ] `scripts/archive-recordings.sh`：`--watch` 常驻守护（inotifywait、cp + cmp 校验、A/B/C 保留策略）
 - [ ] `scripts/archive-recordings.sh`：`--scan` 兜底扫描（补归档 + 本地清理 + watch 保活）
 - [ ] PID 锁与 `timeout` 防挂起
+- [ ] `cp -p` 在 NAS 不支持保留属主时降级普通复制，以 `cmp` 内容校验为准
+- [ ] 录音文件扩展名大小写不敏感匹配（wav49 落盘为 `.WAV`）
+- [ ] `apply_cleanup` 仅在真正删除文件时记录清除日志（避免每 5 分钟刷日志）
 
 ### 6.4 联系人导入
 - [ ] `config/contacts.csv.example` 模板
@@ -146,6 +149,7 @@
 - [ ] 收集自动录音总开关（`RECORDING_ENABLED`，默认启用）+ 录音格式（wav49/ulaw）
 - [ ] 收集持久化归档目录（脱敏提示）+ 本地保留策略（天数,MB 格式）
 - [ ] 安装 `inotify-tools`
+- [ ] 安装 `logrotate` + 写入 `/etc/logrotate.d/simgo`（录音 daily×7、Asterisk daily×14，gzip）
 - [ ] 生成 `spool/contacts.csv` 模板、`spool/monitor` 目录
 - [ ] 安装 `@reboot` + `*/5` 两条 cron（带 `# SimGo-record` 标记，`grep -Fq "archive-recordings.sh"` 独立去重）
 - [ ] 安装清单文本与 `.simgo-manifest` 同步

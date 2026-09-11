@@ -395,6 +395,8 @@ Fork 后也可在 Actions 页面手动触发构建。
    - 默认输出覆盖 `<部署目录>/spool/contacts.csv`
 
 > 录音归档日志与故障排查：`logs/recordings-archive.log`。卸载 SimGo 会删除本地录音与联系人表，**归档目录不受影响**。
+>
+> `logs/` 下的日志由宿主机 `logrotate` 每日自动轮转：录音归档日志保留 7 份、Asterisk（`messages.log` / `queue_log`）保留 14 份，均 gzip 压缩（配置 `/etc/logrotate.d/simgo`，随卸载删除）。
 
 ## 使用说明
 

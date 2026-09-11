@@ -812,8 +812,8 @@ __pycache__/
 12. 打印安装清单，确认后继续（见 §14.3）
 13. 安装 acme.sh，签发 Let's Encrypt TLS 证书（DuckDNS DNS-01），chown 证书目录给 asterisk 用户（uid 101）
 14. 安装 DuckDNS IP 更新 cron
-15. 安装 fail2ban + nftables + inotify-tools（如未安装），安装 filter 和 jail，重启 fail2ban
-16. 创建日志目录（`./logs`）、录音归档配置（`.simgo-archive.conf`）、`spool/monitor` 与 `spool/contacts.csv`
+15. 安装 fail2ban + nftables + inotify-tools + logrotate（如未安装），安装 filter 和 jail，重启 fail2ban
+16. 创建日志目录（`./logs`）、录音归档配置（`.simgo-archive.conf`）、`spool/monitor` 与 `spool/contacts.csv`；写入 `/etc/logrotate.d/simgo`（日志轮转，见 §17.5 运行约束）
 17. 生成 docker-compose.yml（含设备路径、环境变量与 `REC_FORMAT`/`RECORDING_ENABLED` 替换）
 18. 安装录音归档 cron（`# SimGo-record` 标记）
 19. 生成 .simgo-manifest（记录所有宿主机变更，供 uninstall.sh 使用）
@@ -832,6 +832,7 @@ __pycache__/
 | `spool/contacts.csv` | 电话号码 → 联系人映射（复制自 `config/contacts.csv.example`），git 忽略 |
 | `spool/monitor/` | 录音本地中转目录（容器 bind mount 子目录） |
 | `.simgo-manifest` | 安装清单，记录所有宿主机变更（cron 条目、生成的文件），供 uninstall.sh 使用 |
+| `/etc/logrotate.d/simgo` | 宿主机日志轮转配置（录音日志 daily×7、Asterisk daily×14，gzip），setup.sh 生成 |
 
 ### 14.3 宿主机安装清单
 
@@ -854,6 +855,11 @@ SimGo 将在宿主机上安装/变更以下内容：
   - 安装 fail2ban + nftables（如未安装，SimGo 不管理卸载）
   - 安装 asterisk-pjsip filter 和 jail
   - 重启 fail2ban 服务
+
+[录音归档与日志]
+  - 安装 inotify-tools 与 logrotate（如未安装）
+  - 写入 /etc/logrotate.d/simgo（录音日志保留 7 份 / Asterisk 日志 14 份，gzip，随卸载删除）
+  - 安装录音归档 cron（@reboot watch + */5 scan，带 # SimGo-record 标记）
 
 [宿主机 cron]
   - 添加 DuckDNS IP 更新 cron（每 5 分钟，带 # SimGo 标记）
@@ -1062,7 +1068,7 @@ LOCAL_MAX_MB=0        # 本地大小上限（MB）；0 = 不按大小清理
 - `--scan`（兜底扫描，供 cron 调用）：
   1. 遍历 `MONITOR_DIR` 本地文件，尝试归档尚未归档/上次失败的文件（幂等，按 `--watch` 同一流程）
   2. 执行本地清理：
-     - `LOCAL_KEEP_DAYS>0`：删除本地 mtime 超过 N 天的录音
+     - `LOCAL_KEEP_DAYS>0`：删除本地 mtime 超过 N 天的录音（仅在实际删除文件时写清除日志，无删除则静默，避免每 5 分钟刷一条）
      - `LOCAL_MAX_MB>0`：本地总大小超上限时，按最旧优先删除直到达标
   3. **保活**：检查 `--watch` 进程是否存活（按脚本 PID 锁 `pgrep -f "archive-recordings.sh --watch"`），不存在则重启
 
@@ -1071,6 +1077,9 @@ LOCAL_MAX_MB=0        # 本地大小上限（MB）；0 = 不按大小清理
 - 所有 `cp` 用 `timeout` 包裹，防止归档目录不可达（如 NFS hard 挂载）时永久挂起
 - 录音文件扩展名按**大小写不敏感**匹配（MixMonitor 的 wav49 落盘为 `.WAV` 大写），`--scan` 与本地清理均覆盖
 - 日志写入 `<部署目录>/logs/recordings-archive.log`
+- **日志轮转**（宿主机 `logrotate`，`/etc/logrotate.d/simgo`，由 setup.sh 生成、卸载时随 manifest 删除）：每日运行——
+  - `recordings-archive.log`：保留 **7 份** + gzip，用 `create`（脚本每次 `>>` 重新打开文件，rename 无损）
+  - Asterisk `messages.log` / `queue_log`：保留 **14 份** + gzip，用 `copytruncate`（容器内进程长期持 fd，须复制+截断而非换文件，避免 uid 权限问题）
 
 ### 17.6 保留策略（局部存储语义）
 
@@ -1133,14 +1142,15 @@ setup.sh 用 `grep -Fq "archive-recordings.sh"` 独立去重（与 DuckDNS cron 
      - `,500` → 只按大小限制（不按天数清理）
      - 回车 / `0,0` → 默认 A：归档校验成功即删除本地（归档目录为唯一副本）
      <br>解析为 `LOCAL_KEEP_DAYS` / `LOCAL_MAX_MB`（非数字输入忽略）
-- **依赖安装**：检查 `inotifywait`（`command -v inotifywait`），未安装则 `apt install -y inotify-tools`（写入安装清单）
+- **依赖安装**：检查 `inotifywait`（`command -v inotifywait`）与 `logrotate`（`command -v logrotate`），未安装则 `apt install -y inotify-tools` / `logrotate`（写入安装清单）
 - **生成**：
   - 生成 `.simgo-archive.conf`（写入 `ARCHIVE_DIR` / `LOCAL_KEEP_DAYS` / `LOCAL_MAX_MB`）
+  - 生成 `/etc/logrotate.d/simgo`（录音日志 daily×7 用 `create`、Asterisk `messages.log`/`queue_log` daily×14 用 `copytruncate`，均 gzip；manifest 记录供卸载）
   - `chmod +x scripts/archive-recordings.sh`
   - 复制 `config/contacts.csv.example` 为 `<部署目录>/spool/contacts.csv`（若不存在）
   - `mkdir -p <部署目录>/spool/monitor`
 - **cron**：安装 §17.7 两条 cron（带 `# SimGo-record` 标记、`grep -Fq "archive-recordings.sh"` 独立去重后追加）
-- **安装清单与 manifest 追加**：新 cron 行、生成的 `.simgo-archive.conf`、`spool/contacts.csv`、`spool/monitor` 目录记录
+- **安装清单与 manifest 追加**：新 cron 行、生成的 `.simgo-archive.conf`、`spool/contacts.csv`、`spool/monitor` 目录、`/etc/logrotate.d/simgo` 记录
 
 ### 17.10 未来增强（Backlog）
 

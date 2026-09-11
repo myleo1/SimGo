@@ -302,6 +302,7 @@ else
 fi
 echo "  - 录音归档 cron（@reboot watch + */5 scan，带 # SimGo-record 标记）"
 echo "  - 安装 inotify-tools"
+echo "  - 日志轮转：logs/ 自动轮转（daily，录音 7 份 / Asterisk 14 份，gzip）"
 echo ""
 echo "[部署目录]"
 echo "  - 生成：docker-compose.yml, duckdns-update.sh, .simgo-archive.conf, logs/, spool/contacts.csv, spool/monitor/, .simgo-manifest"
@@ -421,6 +422,12 @@ if ! command -v inotifywait &>/dev/null; then
     info "安装 inotify-tools..."
     apt-get update && apt-get install -y inotify-tools
 fi
+
+info "检查 logrotate（日志轮转依赖）..."
+if ! command -v logrotate &>/dev/null; then
+    info "安装 logrotate..."
+    apt-get update && apt-get install -y logrotate
+fi
 echo ""
 
 # ============================================================
@@ -448,6 +455,30 @@ if [ ! -f "${SCRIPT_DIR}/spool/contacts.csv" ]; then
     cp "${SCRIPT_DIR}/config/contacts.csv.example" "${SCRIPT_DIR}/spool/contacts.csv"
     info "联系人映射表已复制到 spool/contacts.csv（可按模板格式编辑）"
 fi
+
+# 日志轮转配置（宿主侧 logrotate daily）
+cat > /etc/logrotate.d/simgo <<LOGEOF
+# SimGo 日志轮转（setup.sh 生成）
+${SCRIPT_DIR}/logs/recordings-archive.log {
+    daily
+    rotate 7
+    compress
+    missingok
+    notifempty
+    create 0644 root root
+}
+
+# Asterisk 日志（容器内进程长期持 fd，用 copytruncate）
+${SCRIPT_DIR}/logs/messages.log ${SCRIPT_DIR}/logs/queue_log {
+    daily
+    rotate 14
+    compress
+    missingok
+    notifempty
+    copytruncate
+}
+LOGEOF
+info "日志轮转已配置: /etc/logrotate.d/simgo（录音 7 份 / Asterisk 14 份，gzip）"
 
 # ============================================================
 # 步骤 17: 生成 docker-compose.yml
@@ -510,6 +541,7 @@ file:${SCRIPT_DIR}/.simgo-archive.conf
 file:${SCRIPT_DIR}/spool/contacts.csv
 file:/etc/fail2ban/filter.d/asterisk-pjsip.conf
 file:/etc/fail2ban/jail.d/asterisk-pjsip.local
+file:/etc/logrotate.d/simgo
 file:${SCRIPT_DIR}/.simgo-manifest
 dir:${CERT_DIR}
 dir:${SCRIPT_DIR}/logs
@@ -534,6 +566,8 @@ echo "  docker compose logs -f"
 echo ""
 echo "录音日志（宿主机）:"
 echo "  ${SCRIPT_DIR}/logs/recordings-archive.log"
+echo "日志轮转（宿主 logrotate，daily）:"
+echo "  录音日志保留 7 份、Asterisk 日志保留 14 份（gzip）"
 echo ""
 echo "联系人映射（可编辑，重新加载模块后生效）:"
 echo "  ${SCRIPT_DIR}/spool/contacts.csv"

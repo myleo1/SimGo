@@ -56,7 +56,8 @@ SimGo 将 Quectel EC20 4G 模块通过 USB 接入 Linux 主机，运行容器化
 - `--watch`：inotifywait 监听落盘 → 按月建 `<ARCHIVE_DIR>/YYYY-MM/` → `timeout 120 cp` → `cmp` 校验 → 通过后按保留策略处理；失败留本地+记日志
 - `--scan`：补归档 + 本地清理（天数/大小）+ watch 保活
 - A 模式（默认，KEEP=0 且 MAX=0）：校验成功即删本地，归档目录为唯一副本
-- 日志：`<部署目录>/logs/recordings-archive.log`
+- 本地清理仅在**真正删除文件时**记录日志（无删除静默，避免每 5 分钟刷日志）
+- 日志：`<部署目录>/logs/recordings-archive.log`；`full`/`messages`/`queue_log` 等 Asterisk 日志同目录
 - 只依赖 `inotify-tools`，不引入 rclone
 
 ### 4. 联系人（contacts.csv）
@@ -72,6 +73,7 @@ SimGo 将 Quectel EC20 4G 模块通过 USB 接入 Linux 主机，运行容器化
 - 持久化归档目录（**脱敏**提示，示例一律通用路径，不得出现具体部署环境目录）；校验可写，可留空
 - 保留策略 `天数,MB` 询问 → `LOCAL_KEEP_DAYS`/`LOCAL_MAX_MB`
 - 安装 `inotify-tools`；生成 `spool/contacts.csv`、`spool/monitor`
+- 安装 `logrotate` + 写入 `/etc/logrotate.d/simgo`：录音日志 daily×7（`create`）、Asterisk `messages.log`/`queue_log` daily×14（`copytruncate`），均 gzip；manifest 记录该文件供卸载删除
 - cron（`# SimGo-record` 标记）：
   - `@reboot .../archive-recordings.sh --watch`
   - `*/5 * * * * .../archive-recordings.sh --scan`

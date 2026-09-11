@@ -101,9 +101,12 @@ apply_cleanup() {
     [ -d "${MONITOR_DIR}" ] || return 0
 
     if [ "${LOCAL_KEEP_DAYS}" -gt 0 ]; then
-        find "${MONITOR_DIR}" -maxdepth 1 -type f \( "${FILE_PATTERNS[@]}" \) \
-            -mtime "+${LOCAL_KEEP_DAYS}" -delete 2>/dev/null
-        log "清理超过 ${LOCAL_KEEP_DAYS} 天的本地录音"
+        local deleted
+        deleted="$(find "${MONITOR_DIR}" -maxdepth 1 -type f \( "${FILE_PATTERNS[@]}" \) \
+            -mtime "+${LOCAL_KEEP_DAYS}" -delete -print 2>/dev/null)"
+        if [ -n "$deleted" ]; then
+            log "清理 $(echo "$deleted" | wc -l | tr -d ' ') 个超过 ${LOCAL_KEEP_DAYS} 天的本地录音"
+        fi
     fi
 
     if [ "${LOCAL_MAX_MB}" -gt 0 ]; then
