@@ -20,7 +20,7 @@ warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 
 # ============================================================
-# 步骤 1-10: 收集用户输入
+# 步骤 1-11: 收集用户输入
 # ============================================================
 
 echo "========================================="
@@ -29,7 +29,7 @@ echo "========================================="
 echo ""
 
 # --- 步骤 1: AT 端口 ---
-echo "--- 步骤 1/10: AT 命令端口 ---"
+echo "--- 步骤 1/11: AT 命令端口 ---"
 FOUND_AT=($(ls /dev/serial/by-id/*if02* 2>/dev/null || true))
 if [ ${#FOUND_AT[@]} -eq 1 ]; then
     AT_PORT="${FOUND_AT[0]}"
@@ -71,7 +71,7 @@ fi
 echo ""
 
 # --- 步骤 2: ALSA 音频设备 ---
-echo "--- 步骤 2/10: ALSA 音频设备 ---"
+echo "--- 步骤 2/11: ALSA 音频设备 ---"
 ALSA_DEV=""
 # 尝试 aplay -L
 if command -v aplay &>/dev/null; then
@@ -98,7 +98,7 @@ ALSA_DEV=${ALSA_DEV:-"hw:CARD=EC20CEHDLG,DEV=0"}
 echo ""
 
 # --- 步骤 3: PJSIP 用户名和密码 ---
-echo "--- 步骤 3/10: PJSIP 认证信息 ---"
+echo "--- 步骤 3/11: PJSIP 认证信息 ---"
 echo "用户名：字母、数字、下划线、短横线（推荐 gw_ 前缀 + 随机字符串）"
 echo "密码：32 位以上随机字符串（强口令）"
 read -p "PJSIP 用户名: " PJSIP_EXTEN
@@ -116,7 +116,7 @@ done
 echo ""
 
 # --- 步骤 4: 局域网段 ---
-echo "--- 步骤 4/10: 本地局域网段 ---"
+echo "--- 步骤 4/11: 本地局域网段 ---"
 read -p "局域网段 (CIDR, 如 192.168.1.0/24): " LOCAL_NET
 while [ -z "$LOCAL_NET" ]; do
     error "局域网段不能为空"
@@ -125,7 +125,7 @@ done
 echo ""
 
 # --- 步骤 5: 公网 IP 或域名 ---
-echo "--- 步骤 5/10: 公网 IP 或 DuckDNS 域名 ---"
+echo "--- 步骤 5/11: 公网 IP 或 DuckDNS 域名 ---"
 read -p "公网 IP 或域名 (如 xxx.duckdns.org): " EXTERNAL_MEDIA_ADDRESS
 while [ -z "$EXTERNAL_MEDIA_ADDRESS" ]; do
     error "公网 IP 或域名不能为空"
@@ -134,7 +134,7 @@ done
 echo ""
 
 # --- 步骤 6: Telegram Bot ---
-echo "--- 步骤 6/10: Telegram Bot ---"
+echo "--- 步骤 6/11: Telegram Bot ---"
 read -p "Bot Token: " TG_BOT_TOKEN
 while [ -z "$TG_BOT_TOKEN" ]; do
     error "Bot Token 不能为空"
@@ -148,12 +148,12 @@ done
 echo ""
 
 # --- 步骤 7: SOCKS5 代理 ---
-echo "--- 步骤 7/10: SOCKS5 代理（可选）---"
+echo "--- 步骤 7/11: SOCKS5 代理（可选）---"
 read -p "SOCKS5 代理 (如 socks5://192.168.1.1:1080，回车跳过): " TG_SOCKS5_PROXY
 echo ""
 
 # --- 步骤 8: 企业微信 ---
-echo "--- 步骤 8/10: 企业微信（可选）---"
+echo "--- 步骤 8/11: 企业微信（可选）---"
 read -p "企业微信 WebHook API (回车跳过): " WECHAT_WORK_API
 if [ -n "$WECHAT_WORK_API" ]; then
     read -p "企业微信 WebHook Token: " WECHAT_WORK_TOKEN
@@ -165,7 +165,7 @@ fi
 echo ""
 
 # --- 步骤 9: DuckDNS Token ---
-echo "--- 步骤 9/10: DuckDNS Token ---"
+echo "--- 步骤 9/11: DuckDNS Token ---"
 read -p "DuckDNS Token: " DUCKDNS_TOKEN
 echo ""
 while [ -z "$DUCKDNS_TOKEN" ]; do
@@ -176,7 +176,7 @@ done
 echo ""
 
 # --- 步骤 10: Let's Encrypt 邮箱 ---
-echo "--- 步骤 10/10: Let's Encrypt 邮箱 ---"
+echo "--- 步骤 10/11: Let's Encrypt 邮箱 ---"
 read -p "邮箱 (用于 acme.sh 账户注册): " ACME_EMAIL
 while [ -z "$ACME_EMAIL" ]; do
     error "邮箱不能为空"
@@ -185,7 +185,85 @@ done
 echo ""
 
 # ============================================================
-# 步骤 11: 打印安装清单，确认后执行
+# 步骤 11: 录音归档配置（可选）
+# ============================================================
+
+echo "--- 步骤 11/11: 通话录音与归档 ---"
+
+# --- 自动录音总开关 ---
+read -p "是否启用自动通话录音？[Y/n]（回车=启用）: " RECORDING_CHOICE
+case "$RECORDING_CHOICE" in
+    ""|y|Y|yes|YES) RECORDING_ENABLED="yes" ;;
+    *) RECORDING_ENABLED="no" ;;
+esac
+echo ""
+
+if [ "$RECORDING_ENABLED" = "no" ]; then
+    REC_FORMAT="wav49"
+    ARCHIVE_DIR=""
+    LOCAL_KEEP_DAYS=0
+    LOCAL_MAX_MB=0
+    warn "自动录音已关闭，跳过格式与归档配置"
+    echo ""
+else
+# --- 录音格式 ---
+echo "录音格式说明（电话/EC20 音频为 8kHz 窄带）："
+echo "  wav49  ~0.1 MB/分钟  GSM 压缩，8kHz 语音听觉无损，播放器兼容好（推荐）"
+echo "  ulaw   ~0.47 MB/分钟  G.711，8kHz 带宽下无失真，体积偏大"
+read -p "录音格式 [wav49/回车]，ulaw 请输入 ulaw: " REC_FORMAT
+REC_FORMAT=${REC_FORMAT:-wav49}
+if [ "$REC_FORMAT" != "ulaw" ] && [ "$REC_FORMAT" != "wav49" ]; then
+    warn "未知格式 ${REC_FORMAT}，已回退为 wav49"
+    REC_FORMAT="wav49"
+fi
+
+# --- 持久化归档目录 ---
+echo ""
+echo "请输入语音录音的持久化归档目录（录音归档的最终存放位置）："
+echo "  - 常见做法：挂载到本机的 NAS 共享目录（NFS / SMB / WebDAV 等挂载点）"
+echo "  - 也可以是本机大容量磁盘目录（如 /data/recordings）"
+echo "  留空表示不启用归档，录音仅保存在本地："
+read -r ARCHIVE_DIR
+if [ -n "$ARCHIVE_DIR" ]; then
+    ARCHIVE_DIR="${ARCHIVE_DIR%/}"
+    if [ -w "$ARCHIVE_DIR" ]; then
+        info "归档目录可写: ${ARCHIVE_DIR}"
+    else
+        ARCHIVE_DIR=""
+        warn "目录不存在或不可写，已回退为不归档（仅本地保存）"
+    fi
+fi
+
+# --- 本地保留策略 ---
+echo ""
+echo "本地保留策略（归档成功后本地录音如何处理）："
+echo "  输入格式：天数,MB（逗号分隔两个数字，0=不启用该维度）"
+echo "    30,500  → 本地保留 30 天，且不超过 500MB（超限删最旧）"
+echo "    30      → 只保留 30 天（不限制大小）"
+echo "    ,500    → 只限制 500MB（不按天数清理）"
+echo "    回车     → 默认 A：归档校验成功即删除本地（归档目录为唯一副本）"
+read -p "请输入（回车=默认 A）: " RETENTION_INPUT
+LOCAL_KEEP_DAYS=0
+LOCAL_MAX_MB=0
+if [ -n "$RETENTION_INPUT" ]; then
+    IFS=',' read -ra RET_PARTS <<< "$RETENTION_INPUT"
+    days="${RET_PARTS[0]}"
+    mb="${RET_PARTS[1]:-0}"
+    if [[ "$days" =~ ^[0-9]+$ ]]; then
+        LOCAL_KEEP_DAYS="$days"
+    fi
+    if [[ "$mb" =~ ^[0-9]+$ ]]; then
+        LOCAL_MAX_MB="$mb"
+    fi
+    if [ "${LOCAL_KEEP_DAYS}" -gt 0 ] || [ "${LOCAL_MAX_MB}" -gt 0 ]; then
+        info "本地保留策略：天=${LOCAL_KEEP_DAYS} 上限=${LOCAL_MAX_MB}MB"
+    fi
+fi
+echo ""
+fi
+
+# ============================================================
+# 步骤 12: 打印安装清单，确认后执行
 # ============================================================
 
 echo "========================================="
@@ -210,8 +288,23 @@ echo ""
 echo "[宿主机 cron]"
 echo "  - 添加 DuckDNS IP 更新 cron（每 5 分钟，带 # SimGo 标记）"
 echo ""
+echo "[通话录音与归档]"
+if [ "$RECORDING_ENABLED" = "yes" ]; then
+    echo "  - 自动录音：启用（${REC_FORMAT}，接通来电与去电才录）"
+    if [ -n "$ARCHIVE_DIR" ]; then
+        echo "  - 归档目录：${ARCHIVE_DIR}/<YYYY-MM>/"
+        echo "  - 本地保留：天=${LOCAL_KEEP_DAYS} 大小上限=${LOCAL_MAX_MB}MB（0=不启用）"
+    else
+        echo "  - 归档目录：未启用（录音仅保存在 spool/monitor）"
+    fi
+else
+    echo "  - 自动录音：未启用（可改 docker-compose.yml 的 RECORDING_ENABLED 重新开启）"
+fi
+echo "  - 录音归档 cron（@reboot watch + */5 scan，带 # SimGo-record 标记）"
+echo "  - 安装 inotify-tools"
+echo ""
 echo "[部署目录]"
-echo "  - 生成：docker-compose.yml, duckdns-update.sh, logs/, .simgo-manifest"
+echo "  - 生成：docker-compose.yml, duckdns-update.sh, .simgo-archive.conf, logs/, spool/contacts.csv, spool/monitor/, .simgo-manifest"
 echo ""
 read -p "确认安装？[y/N] " CONFIRM
 if [ "$CONFIRM" != "y" ] && [ "$CONFIRM" != "Y" ]; then
@@ -221,7 +314,7 @@ fi
 echo ""
 
 # ============================================================
-# 步骤 12: 安装 acme.sh + 签发 TLS 证书
+# 步骤 13: 安装 acme.sh + 签发 TLS 证书
 # ============================================================
 
 info "安装 acme.sh..."
@@ -241,7 +334,7 @@ info "TLS 证书已签发到 ${CERT_DIR}/"
 echo ""
 
 # ============================================================
-# 步骤 13: 安装 DuckDNS cron
+# 步骤 14: 安装 DuckDNS cron
 # ============================================================
 
 info "安装 DuckDNS IP 更新 cron..."
@@ -269,7 +362,7 @@ chmod +x "${SCRIPT_DIR}/duckdns-update.sh"
 
 # 添加 cron（避免重复）
 CRON_LINE="*/5 * * * * ${SCRIPT_DIR}/duckdns-update.sh >/dev/null 2>&1 # SimGo"
-if ! crontab -l 2>/dev/null | grep -q "# SimGo"; then
+if ! crontab -l 2>/dev/null | grep -Fq "duckdns-update.sh"; then
     (crontab -l 2>/dev/null; echo "$CRON_LINE") | crontab -
     info "DuckDNS cron 已添加"
 else
@@ -278,7 +371,7 @@ fi
 echo ""
 
 # ============================================================
-# 步骤 14: 安装 fail2ban + nftables
+# 步骤 15: 安装 fail2ban + nftables + inotify-tools
 # ============================================================
 
 info "检查 fail2ban..."
@@ -322,18 +415,42 @@ JILEOF
 
 info "重启 fail2ban..."
 systemctl restart fail2ban 2>/dev/null || warn "fail2ban 重启失败，请手动检查"
+
+info "检查 inotify-tools（录音归档守护依赖）..."
+if ! command -v inotifywait &>/dev/null; then
+    info "安装 inotify-tools..."
+    apt-get update && apt-get install -y inotify-tools
+fi
 echo ""
 
 # ============================================================
-# 步骤 15: 创建日志目录
+# 步骤 16: 创建日志目录 + 录音归档与联系人文件
 # ============================================================
 
 mkdir -p "${SCRIPT_DIR}/logs"
 info "日志目录已创建: ${SCRIPT_DIR}/logs/"
-echo ""
+
+# 录音归档配置（.simgo-archive.conf，git 忽略）
+cat > "${SCRIPT_DIR}/.simgo-archive.conf" <<ARCHIVECONF
+ARCHIVE_DIR="${ARCHIVE_DIR}"
+LOCAL_KEEP_DAYS=${LOCAL_KEEP_DAYS}
+LOCAL_MAX_MB=${LOCAL_MAX_MB}
+ARCHIVECONF
+info "归档配置已生成: .simgo-archive.conf（ARCHIVE_DIR=${ARCHIVE_DIR:-<未启用>}）"
+
+chmod +x "${SCRIPT_DIR}/scripts/archive-recordings.sh"
+
+mkdir -p "${SCRIPT_DIR}/spool/monitor"
+info "录音本地中转目录: ${SCRIPT_DIR}/spool/monitor/"
+
+# 联系人映射表模板（首次复制，之后用户可自行编辑 spool/contacts.csv）
+if [ ! -f "${SCRIPT_DIR}/spool/contacts.csv" ]; then
+    cp "${SCRIPT_DIR}/config/contacts.csv.example" "${SCRIPT_DIR}/spool/contacts.csv"
+    info "联系人映射表已复制到 spool/contacts.csv（可按模板格式编辑）"
+fi
 
 # ============================================================
-# 步骤 16: 生成 docker-compose.yml
+# 步骤 17: 生成 docker-compose.yml
 # ============================================================
 
 info "生成 docker-compose.yml..."
@@ -351,6 +468,8 @@ sed -i \
     -e "s|\${TG_BOT_TOKEN}|${TG_BOT_TOKEN}|g" \
     -e "s|\${TG_CHAT_ID}|${TG_CHAT_ID}|g" \
     -e "s|\${TG_SOCKS5_PROXY}|${TG_SOCKS5_PROXY}|g" \
+    -e "s|\${REC_FORMAT}|${REC_FORMAT}|g" \
+    -e "s|\${RECORDING_ENABLED}|${RECORDING_ENABLED}|g" \
     "${SCRIPT_DIR}/docker-compose.yml"
 
 # 动态追加企业微信环境变量到 docker-compose.yml
@@ -361,26 +480,46 @@ info "docker-compose.yml 已生成"
 echo ""
 
 # ============================================================
-# 步骤 17: 生成 .simgo-manifest
+# 步骤 18: 安装录音归档 cron
+# ============================================================
+
+info "安装录音归档 cron..."
+ARCHIVE_WATCH_CRON="@reboot ${SCRIPT_DIR}/scripts/archive-recordings.sh --watch >/dev/null 2>&1 # SimGo-record"
+ARCHIVE_SCAN_CRON="*/5 * * * * ${SCRIPT_DIR}/scripts/archive-recordings.sh --scan >/dev/null 2>&1 # SimGo-record"
+if ! crontab -l 2>/dev/null | grep -Fq "archive-recordings.sh"; then
+    (crontab -l 2>/dev/null; echo "$ARCHIVE_WATCH_CRON"; echo "$ARCHIVE_SCAN_CRON") | crontab -
+    info "录音归档 cron 已添加（watch @reboot + scan */5）"
+else
+    warn "录音归档 cron 已存在，跳过"
+fi
+echo ""
+
+# ============================================================
+# 步骤 19: 生成 .simgo-manifest
 # ============================================================
 
 info "生成安装清单..."
 cat > "$MANIFEST" <<MANEOF
 # SimGo uninstall manifest
 cron:*/5 * * * * ${SCRIPT_DIR}/duckdns-update.sh
+cron:${SCRIPT_DIR}/scripts/archive-recordings.sh --watch
+cron:${SCRIPT_DIR}/scripts/archive-recordings.sh --scan
 file:${SCRIPT_DIR}/duckdns-update.sh
 file:${SCRIPT_DIR}/docker-compose.yml
+file:${SCRIPT_DIR}/.simgo-archive.conf
+file:${SCRIPT_DIR}/spool/contacts.csv
 file:/etc/fail2ban/filter.d/asterisk-pjsip.conf
 file:/etc/fail2ban/jail.d/asterisk-pjsip.local
 file:${SCRIPT_DIR}/.simgo-manifest
 dir:${CERT_DIR}
 dir:${SCRIPT_DIR}/logs
+dir:${SCRIPT_DIR}/spool/monitor
 MANEOF
 info "安装清单已生成: ${MANIFEST}"
 echo ""
 
 # ============================================================
-# 步骤 18: 提示启动命令
+# 步骤 20: 提示启动命令
 # ============================================================
 
 echo "========================================="
@@ -393,9 +532,20 @@ echo ""
 echo "查看日志:"
 echo "  docker compose logs -f"
 echo ""
+echo "录音日志（宿主机）:"
+echo "  ${SCRIPT_DIR}/logs/recordings-archive.log"
+echo ""
+echo "联系人映射（可编辑，重新加载模块后生效）:"
+echo "  ${SCRIPT_DIR}/spool/contacts.csv"
+if [ -n "$ARCHIVE_DIR" ]; then
+    echo "录音归档位置:"
+    echo "  ${ARCHIVE_DIR}/<YYYY-MM>/"
+fi
+echo ""
 echo "停止:"
 echo "  docker compose down"
 echo ""
 echo "卸载:"
 echo "  ${SCRIPT_DIR}/uninstall.sh"
+echo "  注意：卸载会删除 spool/ 下的联系人表与本地录音，归档目录不动"
 echo ""

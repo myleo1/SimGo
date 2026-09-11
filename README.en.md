@@ -62,6 +62,7 @@ graph TB
             SMS[sms_notify.py<br/>SMS Notifications]
         end
         F2B[Fail2ban<br/>Protection]
+        ARC[archive-recordings.sh<br/>Recording Archive Daemon]
     end
 
     subgraph "Hardware"
@@ -85,6 +86,7 @@ graph TB
     4G <--> PSTN
     PSTN <-->|"Calls/SMS"| SIM
     F2B -.->|"Ban Brute Force"| AS
+    AS -.->|"spool/monitor recordings"| ARC
 
     style AS fill:#4a90d9,color:#fff
     style EC20 fill:#e74c3c,color:#fff
@@ -253,12 +255,17 @@ The setup script will guide you through:
 8. **WeChat Work config** (optional, requires [wechat-work-pusher](https://github.com/myleo1/wechat-work-pusher) server)
 9. **DuckDNS Token** (for TLS certificate issuance and IP auto-update)
 10. **Let's Encrypt email** (for acme.sh account registration)
+11. **Call recording & archiving** (optional): enable/disable automatic recording, recording format (`wav49`/`ulaw`), persistent archive directory, local retention policy
 
 The script generates:
 - `docker-compose.yml`
 - Config files (PJSIP, Quectel, Telegram Bot, etc.)
 - TLS certificates (Let's Encrypt via DuckDNS)
 - `duckdns-update.sh` (DuckDNS IP auto-update cron, every 5 minutes)
+- `.simgo-archive.conf` (recording archive config)
+- `spool/contacts.csv` (contact mapping, editable)
+- `spool/monitor/` (local recording staging directory)
+- Recording archive cron: `@reboot` starts the watch daemon + a 5-minute fallback scan
 
 Then start the service:
 
@@ -339,6 +346,54 @@ SimGo enables TLS and SRTP by default:
 > Deployment requires a DuckDNS domain and Token ([duckdns.org](https://www.duckdns.org/) — free registration). The script auto-installs acme.sh and handles certificate issuance.
 
 **⚠️ Strong password required**: The PJSIP password is the only authentication credential for the public SIP service. Use a strong password (32+ random characters). Use a prefix + random string for the username (e.g. `gw_7Kx92mQ4`), avoid numeric extensions like `1001` or `1000`.
+
+## Call Recording & Archiving
+
+### Enable / Disable
+
+You choose whether to enable automatic recording during deployment (setup.sh), **enabled by default**. To turn it off/on after deployment, change the `RECORDING_ENABLED` environment variable in `docker-compose.yml` to `no` / `yes`, then rebuild the container with `docker compose up -d` — no dialplan changes needed. When disabled, the recording infrastructure (archive cron, contact table, format setting) stays intact, so switching back to `yes` restores recording.
+
+### Recording Formats
+
+Phone / EC20 audio is natively **8kHz narrowband** — sampling above 8kHz is pointless. Choose during deployment:
+
+| Format | Codec | ~Per minute | Notes |
+|--------|-------|-------------|-------|
+| `wav49` (default) | GSM in WAV | ~100 KB | Optimized for telephone voice, best player compatibility |
+| `ulaw` | G.711 8-bit | ~470 KB | No loss at 8kHz bandwidth, larger files |
+
+### Archiving Mechanism
+
+- **Automatic bidirectional recording**: starts only after the call is answered (no ringback/wait tones), stops on hangup
+- Recordings first land in the local staging directory `spool/monitor/`, then a host daemon (inotifywait) **byte-verifies** (`cmp`) and archives to the persistent archive directory, organized monthly (`YYYY-MM/`)
+- Leave the archive directory empty (during deployment) = no archiving, recordings stay local only
+- **Persistent archive directory suggestion**: a NAS share mounted on the host (NFS / SMB / WebDAV mount point) or a large local disk directory
+
+> **Why not write directly to the archive from the container?** If the archive is a NAS mount, it may not be ready when the container starts (bind mount silently binds an empty directory), and an offline NFS `write()` can block calls forever. So recordings always go to local disk first; the host daemon handles archiving. If archive storage is unavailable it's skipped and re-synced within 5 minutes after recovery.
+
+### Local Retention Policy
+
+What happens to local recordings after a successful archive (chosen during deployment):
+
+| Mode | Behavior |
+|------|----------|
+| A (default) | Delete local immediately — archive is the only copy |
+| B | Keep locally for N days (backup copy) |
+| C | Cap local size at N MB (oldest deleted first when over) |
+| B+C | Clean when either condition triggers |
+
+### Contact Naming (Optional)
+
+`spool/contacts.csv` (UTF-8, `number,name` per line) maps numbers to names in recording filenames. Unmapped numbers fall back to the number itself. Example: `20260911-153045_in_ZhangSan_13800138000.wav49`
+
+Maintain it two ways:
+1. **Edit manually** `spool/contacts.csv` (see the `config/contacts.csv.example` template)
+2. **Import from iPhone contacts** (one-time; auto-generates `+86`/no-prefix variants to improve matching):
+   - Export contacts as vCard (`.vcf`) from [iCloud Contacts](https://www.icloud.com/contacts) on a computer (select all → export vCard)
+   - Run: `python3 scripts/vcard_to_csv.py your-contacts.vcf`
+   - Default output overwrites `<deploy-dir>/spool/contacts.csv`
+
+> Archive logs & troubleshooting: `logs/recordings-archive.log`. Uninstalling SimGo deletes local recordings and the contact table — **the archive directory is unaffected**.
 
 ## Usage
 
@@ -446,11 +501,14 @@ SimGo/
 │   ├── extensions_custom.conf
 │   ├── quectel.conf
 │   ├── modules.conf
-│   └── rtp.conf
-├── scripts/                # Notification and bot scripts
+│   ├── rtp.conf
+│   └── contacts.csv.example # Contact mapping template (copied to spool/contacts.csv)
+├── scripts/                # Notification, bot and recording scripts
 │   ├── sms_notify.py
 │   ├── telegram_bot.py
-│   └── bot.conf            # Bot config template
+│   ├── bot.conf            # Bot config template
+│   ├── archive-recordings.sh # Recording archive daemon (--watch/--scan)
+│   └── vcard_to_csv.py     # iPhone vCard → contacts.csv import tool
 ├── docker/                 # Docker files
 │   ├── Dockerfile
 │   └── docker-compose.yml
@@ -462,12 +520,17 @@ SimGo/
 ├── .github/                # GitHub Actions
 │   └── workflows/
 │       └── build.yml
+├── .simgo-archive.conf      # Recording archive config (generated by setup.sh, git ignored)
 ├── setup.sh                # Interactive deploy script
 ├── uninstall.sh            # Uninstall script
+├── spool/                  # Runtime data (git ignored)
+│   ├── contacts.csv        # Contact mapping (used in recording filenames)
+│   └── monitor/            # Local recording staging directory
 ├── docs/                   # Project documentation
 │   ├── REQUIREMENTS.md
 │   ├── DESIGN.md
-│   └── TASKS.md
+│   ├── TASKS.md
+│   └── PROMPT-RECORD.md
 ├── LICENSE                 # GPL v2 license
 └── README.md
 ```

@@ -40,35 +40,46 @@
 ```
 SimGo/
 ├── config/
-│   ├── pjsip.conf              # PJSIP 配置（模板）
-│   ├── extensions.conf         # 主拨号计划（模板）
-│   ├── extensions_custom.conf  # 自定义拨号计划（模板）
-│   ├── quectel.conf            # Quectel 模块配置（模板）
-│   ├── modules.conf            # 模块加载配置
-│   └── rtp.conf                # RTP 配置
+│   ├── pjsip.conf               # PJSIP 配置（模板）
+│   ├── extensions.conf          # 主拨号计划（模板）
+│   ├── extensions_custom.conf   # 自定义拨号计划（模板，含通话录音）
+│   ├── quectel.conf             # Quectel 模块配置（模板）
+│   ├── modules.conf             # 模块加载配置
+│   ├── rtp.conf                 # RTP 配置
+│   └── contacts.csv.example     # 联系人映射模板（setup.sh 复制为 spool/contacts.csv）
 ├── scripts/
-│   ├── sms_notify.py           # 短信通知脚本（TG + 企业微信）
-│   ├── telegram_bot.py         # Bot 主程序
-│   └── bot.conf               # Bot 配置文件（模板）
+│   ├── sms_notify.py            # 短信通知脚本（TG + 企业微信）
+│   ├── telegram_bot.py          # Bot 主程序
+│   ├── archive-recordings.sh    # 录音归档守护（宿主机侧，--watch/--scan 双模式）
+│   ├── vcard_to_csv.py          # vCard → contacts.csv 一次性导入工具
+│   └── bot.conf                 # Bot 配置文件（模板）
 ├── docker/
-│   ├── Dockerfile              # 镜像构建文件
-│   └── docker-compose.yml      # 部署配置（模板）
+│   ├── Dockerfile               # 镜像构建文件
+│   └── docker-compose.yml       # 部署配置（模板）
 ├── fail2ban/
 │   ├── filter.d/
-│   │   └── asterisk-pjsip.conf # Fail2ban 过滤器
+│   │   └── asterisk-pjsip.conf  # Fail2ban 过滤器
 │   └── jail.d/
 │       └── asterisk-pjsip.local # Fail2ban 监狱配置
 ├── .github/
 │   └── workflows/
-│       └── build.yml           # GitHub Actions 构建
-├── setup.sh                    # 交互式部署脚本
-├── uninstall.sh                # 卸载脚本
+│       └── build.yml            # GitHub Actions 构建
+├── setup.sh                     # 交互式部署脚本
+├── uninstall.sh                 # 卸载脚本
 ├── docs/
-│   ├── REQUIREMENTS.md         # 需求文档
-│   ├── DESIGN.md               # 设计文档
-│   └── TASKS.md                # 任务拆解
-├── LICENSE                     # GPL v2 许可证
-└── README.md                   # 项目说明
+│   ├── REQUIREMENTS.md          # 需求文档
+│   ├── DESIGN.md                # 设计文档
+│   ├── TASKS.md                 # 任务拆解
+│   └── PROMPT-RECORD.md         # 录音归档功能的迭代 prompt
+├── LICENSE                      # GPL v2 许可证
+└── README.md                    # 项目说明
+
+# 运行时（由 setup.sh 生成/初始化，git 忽略）
+logs/                            # 日志（bind mount 到容器）
+.simgo-archive.conf              # 录音归档配置（ARCHIVE_DIR / 保留策略，由 archive-recordings.sh 读取）
+spool/                           # Asterisk 运行时数据（bind mount 到容器）
+│   └── contacts.csv             # 联系人映射（运行时文件，从模板复制后维护）
+│   └── monitor/                 # 录音临时中转目录（归档成功或按策略清理）
 ```
 
 ## 3. 配置模板系统
@@ -99,6 +110,7 @@ SimGo/
 | `__WECHAT_WORK_TOKEN__` | 企业微信 Token | （用户输入） |
 | `__WECHAT_WORK_TO__` | 企业微信接收人 | （用户输入） |
 | `__ACME_EMAIL__` | Let's Encrypt 邮箱 | （用户输入） |
+| `__REC_FORMAT__` | 录音格式（`wav49` / `ulaw`） | `wav49` |
 
 ## 4. Docker 镜像设计
 
@@ -447,6 +459,75 @@ SOCKS5_PROXY=__TG_SOCKS5_PROXY__
 
 > **注意**：企业微信配置行（`WECHAT_WORK_API`、`WECHAT_WORK_TOKEN`、`WECHAT_WORK_TO`）由 setup.sh 在用户填写时动态追加，未填写则不写入。
 
+### 8.5 extensions_custom.conf（含通话录音）
+
+```ini
+[from-internal]
+exten => _[+0-9].,1,NoOp(Calling out via EC20: ${EXTEN})
+; SIMGO_REC_OUT_BEGIN
+same => n,Set(REC_TIME=${STRFTIME(${EPOCH},,%Y%m%d-%H%M%S)})
+same => n,Set(RECNUM=${FILTER(0-9,${EXTEN})})
+same => n,Set(RECNUM=${IF($[${LEN(${RECNUM})=0}]?${EXTEN}:${RECNUM})})
+same => n,Set(REC_NAME=${SHELL(grep -m1 "^${RECNUM}," /var/spool/asterisk/contacts.csv 2>/dev/null | cut -d, -f2 | tr -d '\r\n')})
+same => n,Set(REC_NAME=${IF($[${LEN(${REC_NAME})=0}]?${RECNUM}:${REC_NAME})})
+same => n,Set(REC_NAME=${REPLACE(${REC_NAME}, ,_)})
+same => n,MixMonitor(/var/spool/asterisk/monitor/${REC_TIME}_out_${REC_NAME}_${RECNUM}.__REC_FORMAT__,b)
+; SIMGO_REC_OUT_END
+same => n,Dial(Quectel/quectel0/${EXTEN})
+same => n,Hangup()
+
+[incoming-mobile]
+exten => sms,1,Verbose(Incoming SMS from ${CALLERID(num)})
+same => n,System(/usr/bin/python3 /etc/asterisk/scripts/sms_notify.py "${CALLERID(num)}" "${SMS_BASE64}" "${QUECTELNAME}" &)
+same => n,Hangup()
+
+exten => ussd,1,Verbose(Incoming USSD: ${BASE64_DECODE(${USSD_BASE64})})
+same => n,Hangup()
+
+exten => s,1,NoOp(Incoming call from ${CALLERID(num)})
+same => n,Set(CALLERID(all)="${CALLERID(num)}" <${CALLERID(num)}>)
+
+same => n,Set(MAX_RETRIES=8)
+same => n,Set(COUNTER=0)
+
+same => n(check_reg),NoOp(Checking if __PJSIP_EXTEN__ is online... Attempt ${COUNTER})
+same => n,Set(CONTACTS=${PJSIP_DIAL_CONTACTS(__PJSIP_EXTEN__)})
+same => n,GotoIf($[ "${CONTACTS}" != "" ]?dial_now)
+
+same => n,Set(COUNTER=$[${COUNTER} + 1])
+same => n,GotoIf($[${COUNTER} >= ${MAX_RETRIES}]?timeout)
+
+same => n,Ringing()
+same => n,Wait(5)
+same => n,Goto(check_reg)
+
+same => n(dial_now),NoOp(__PJSIP_EXTEN__ is online, dialing...)
+same => n,Set(DIAL_CONTACTS=${PJSIP_DIAL_CONTACTS(__PJSIP_EXTEN__)})
+; SIMGO_REC_IN_BEGIN
+same => n,Set(REC_TIME=${STRFTIME(${EPOCH},,%Y%m%d-%H%M%S)})
+same => n,Set(RECNUM=${FILTER(0-9,${CALLERID(num)})})
+same => n,Set(RECNUM=${IF($[${LEN(${RECNUM})=0}]?${CALLERID(num)}:${RECNUM})})
+same => n,Set(REC_NAME=${SHELL(grep -m1 "^${RECNUM}," /var/spool/asterisk/contacts.csv 2>/dev/null | cut -d, -f2 | tr -d '\r\n')})
+same => n,Set(REC_NAME=${IF($[${LEN(${REC_NAME})=0}]?${RECNUM}:${REC_NAME})})
+same => n,Set(REC_NAME=${REPLACE(${REC_NAME}, ,_)})
+same => n,MixMonitor(/var/spool/asterisk/monitor/${REC_TIME}_in_${REC_NAME}_${RECNUM}.__REC_FORMAT__,b)
+; SIMGO_REC_IN_END
+same => n,Dial(${DIAL_CONTACTS},30)
+same => n,Hangup()
+
+same => n(timeout),NoOp(__PJSIP_EXTEN__ did not register in time. Hanging up.)
+same => n,Hangup()
+```
+
+**录音要点**：
+- 录音块用注释标记 `; SIMGO_REC_OUT_BEGIN/END`、`; SIMGO_REC_IN_BEGIN/END` 包裹；start.sh 在渲染后根据环境变量 `RECORDING_ENABLED`（`yes`/其他）决定是否用 `sed` 删除区间（关闭录音时不产生录音行，拨号计划回退为纯 NoOp + Dial）
+- `MixMonitor(file,b)` 的 `b` 选项 = 仅在 bridge 期间录音（接通才录，不录等待音/振铃），挂机自动停止写盘
+- 录音文件落在 `/var/spool/asterisk/monitor/`，该目录为既有 `./spool:/var/spool/asterisk` bind mount 的子目录，即宿主机 `<部署目录>/spool/monitor/`（录音临时中转目录）
+- `RECNUM` 用 `${FILTER(0-9,...)}` 将对方号码规范为纯数字（去掉 `+`/- 等），同时照顾 csv 中 `+86`/`0086` 去前缀后的双行变体，提高匹配率；空值回退原始号码
+- 联系人查询使用 `contacts.csv`（UTF-8，`号码,名字` 每行）；未命中回退为号码；文件名中的空格统一替换为 `_`
+- 模板中的 `__REC_FORMAT__` 是占位符，start.sh 渲染时替换为实际格式字符串（`wav49` / `ulaw`，来自环境变量 `REC_FORMAT`），避免 dialplan 里把 `${REC_FORMAT}` 当成未设置的空 channel 变量
+- 去电方向为 `out`；来电方向为 `in`，对方号码为 `${CALLERID(num)}`
+
 ## 9. docker-compose.yml 模板
 
 ```yaml
@@ -478,6 +559,8 @@ services:
       - TG_BOT_TOKEN=${TG_BOT_TOKEN}
       - TG_CHAT_ID=${TG_CHAT_ID}
       - TG_SOCKS5_PROXY=${TG_SOCKS5_PROXY}
+      - REC_FORMAT=${REC_FORMAT}
+      - RECORDING_ENABLED=${RECORDING_ENABLED}
     logging:
       driver: json-file
       options:
@@ -490,7 +573,7 @@ services:
 - `network_mode: host`：容器直接使用宿主机网络栈，避免 Docker NAT 和 RTP 端口映射问题，同时让宿主机 nftables 能直接拦截 SIP 攻击流量
 - 设备映射使用 `by-id` 路径，防止 USB 序号漂移
 - `./logs:/var/log/asterisk`：bind mount 日志到宿主机，供 Fail2ban 读取
-- `./spool:/var/spool/asterisk`：bind mount Asterisk 运行时数据（录音、CDR 等）到宿主机
+- `./spool:/var/spool/asterisk`：bind mount Asterisk 运行时数据到宿主机。**录音文件落在其中 `monitor/` 子目录，作为临时中转**；持久化归档由宿主机侧的 `archive-recordings.sh` 守护完成（cp + cmp 校验 → 归档到持久化归档目录 → 按保留策略处理本地），**容器与归档目录保持解耦，不直接挂载归档卷**
 - 配置文件以只读方式挂载，由 start.sh 在容器内渲染
 - 环境变量由 setup.sh 直接写入 docker-compose.yml
 - 企业微信环境变量（`WECHAT_WORK_API`、`WECHAT_WORK_TOKEN`、`WECHAT_WORK_TO`）仅在用户填写时由 setup.sh 追加
@@ -508,6 +591,12 @@ SCRIPT_DIR="/etc/asterisk/scripts"
 
 # 1. 初始化目录和文件
 mkdir -p /var/log/asterisk/cdr-csv
+mkdir -p /var/spool/asterisk/monitor
+
+# 录音格式（wav49 默认，可切换 ulaw）
+REC_FORMAT="${REC_FORMAT:-wav49}"
+# 自动录音总开关（setup.sh 配置，关闭时移除拨号计划中的录音区间）
+RECORDING_ENABLED="${RECORDING_ENABLED:-yes}"
 
 # 2. 渲染配置模板（sed 替换占位符）
 render_config() {
@@ -527,6 +616,7 @@ render_config() {
         -e "s|__WECHAT_WORK_API__|${WECHAT_WORK_API}|g" \
         -e "s|__WECHAT_WORK_TOKEN__|${WECHAT_WORK_TOKEN}|g" \
         -e "s|__WECHAT_WORK_TO__|${WECHAT_WORK_TO}|g" \
+        -e "s|__REC_FORMAT__|${REC_FORMAT}|g" \
         "${CONFIG_DIR}/${dst}"
 }
 
@@ -536,6 +626,12 @@ render_config extensions_custom.conf extensions_custom.conf
 render_config quectel.conf quectel.conf
 render_config modules.conf modules.conf
 render_config rtp.conf rtp.conf
+
+# 自动录音关闭时，删除拨号计划中的录音区间（含标记注释行）
+if [ "${RECORDING_ENABLED}" != "yes" ]; then
+    sed -i '/; SIMGO_REC_OUT_BEGIN/,/; SIMGO_REC_OUT_END/d' "${CONFIG_DIR}/extensions_custom.conf"
+    sed -i '/; SIMGO_REC_IN_BEGIN/,/; SIMGO_REC_IN_END/d' "${CONFIG_DIR}/extensions_custom.conf"
+fi
 
 # bot.conf 模板在 scripts/ 目录，渲染到 /etc/asterisk/bot.conf
 cp "${SCRIPT_DIR}/bot.conf" "${CONFIG_DIR}/bot.conf"
@@ -712,14 +808,16 @@ __pycache__/
 8. 收集企业微信配置（可选，未填写则不写入配置文件和 docker-compose.yml）
 9. 收集 DuckDNS Token（用于签发 TLS 证书和 IP 自动更新）
 10. 收集 Let's Encrypt 邮箱（用于 acme.sh 账户注册）
-11. 打印安装清单，确认后继续（见 §14.3）
-12. 安装 acme.sh，签发 Let's Encrypt TLS 证书（DuckDNS DNS-01），chown 证书目录给 asterisk 用户（uid 101）
-13. 安装 DuckDNS IP 更新 cron
-14. 安装 fail2ban + nftables（如未安装），安装 filter 和 jail，重启 fail2ban
-15. 创建日志目录（`./logs`）
-16. 生成 docker-compose.yml
-17. 生成 .simgo-manifest（记录所有宿主机变更，供 uninstall.sh 使用）
-18. 提示启动命令
+11. 录音归档配置（录音总开关、格式、归档目录、保留策略，见 §17.9）
+12. 打印安装清单，确认后继续（见 §14.3）
+13. 安装 acme.sh，签发 Let's Encrypt TLS 证书（DuckDNS DNS-01），chown 证书目录给 asterisk 用户（uid 101）
+14. 安装 DuckDNS IP 更新 cron
+15. 安装 fail2ban + nftables + inotify-tools（如未安装），安装 filter 和 jail，重启 fail2ban
+16. 创建日志目录（`./logs`）、录音归档配置（`.simgo-archive.conf`）、`spool/monitor` 与 `spool/contacts.csv`
+17. 生成 docker-compose.yml（含设备路径、环境变量与 `REC_FORMAT`/`RECORDING_ENABLED` 替换）
+18. 安装录音归档 cron（`# SimGo-record` 标记）
+19. 生成 .simgo-manifest（记录所有宿主机变更，供 uninstall.sh 使用）
+20. 提示启动命令
 ```
 
 ### 14.2 生成的文件
@@ -730,6 +828,9 @@ __pycache__/
 | `certs/asterisk.pem` | Let's Encrypt TLS 证书（DuckDNS DNS-01） |
 | `certs/asterisk.key` | TLS 私钥 |
 | `duckdns-update.sh` | DuckDNS IP 自动更新脚本（安装 cron 每 5 分钟更新） |
+| `.simgo-archive.conf` | 录音归档守护配置（`ARCHIVE_DIR` / `LOCAL_KEEP_DAYS` / `LOCAL_MAX_MB`），git 忽略 |
+| `spool/contacts.csv` | 电话号码 → 联系人映射（复制自 `config/contacts.csv.example`），git 忽略 |
+| `spool/monitor/` | 录音本地中转目录（容器 bind mount 子目录） |
 | `.simgo-manifest` | 安装清单，记录所有宿主机变更（cron 条目、生成的文件），供 uninstall.sh 使用 |
 
 ### 14.3 宿主机安装清单
@@ -865,3 +966,185 @@ echo "如需卸载 fail2ban，请执行：apt remove fail2ban"
 | manifest 自删 | 最后一行删除 `.simgo-manifest` 自身 |
 | 容器和卷全清 | `docker compose down -v` 删除容器和匿名卷 |
 | 挂载的源目录不删 | `./config/`、`./scripts/`、`./certs/`、`./logs/` 是用户部署目录下的文件，由 manifest 的 file/dir 记录逐个清理 |
+
+## 17. 通话录音与归档
+
+### 17.1 存储链路概览
+
+```
+容器内 Asterisk
+  /var/spool/asterisk/monitor/{ts}_{out|in}_{联系人}_{号码}.wav49
+        ↕ bind mount（既有 ./spool:/var/spool/asterisk）
+宿主机 <部署目录>/spool/monitor/
+        ↕ archive-recordings.sh（宿主机守护：cp + cmp 校验 → 归档 → 按保留策略处理本地）
+持久化归档目录/<YYYY-MM>/{录音文件}
+```
+
+- **录音临时中转目录**（本地）：`<部署目录>/spool/monitor/`
+- **持久化归档目录**（最终存档，可配置，典型为挂载到宿主机本地的 NAS 共享目录）：`ARCHIVE_DIR`，按 `YYYY-MM` 分月子目录
+- 容器与归档目录**解耦**：容器不挂载归档卷，归档完全由宿主机侧守护完成
+
+### 17.2 录音实现
+
+拨号计划中在 `Dial()` 之前调用 `MixMonitor(路径,b)`：
+
+- `b`（bridge）选项：仅在通话真正桥接期间录音，不录等待音/振铃；挂机自动停止并写盘
+- 文件名：`<YYYYMMDD-HHMMSS>_<out|in>_<联系人>_<号码>.<格式>`
+- 格式与命名细节见 §8.5（`extensions_custom.conf` 模板）
+- **总开关**：录音可行性由环境变量 `RECORDING_ENABLED` 控制（`yes`/其他，setup.sh 记录到 docker-compose）。关闭时 start.sh 用 `sed` 删除拨号计划中的 `SIMGO_REC_OUT/IN_BEGIN..END` 区间，拨号计划回退为不录音版本；录音配套（cron 归档守护、`contacts.csv`、`REC_FORMAT`）保留不动，日后改回 `RECORDING_ENABLED=yes` 重启容器即恢复
+
+### 17.3 录音格式对照
+
+| 格式 | 编码 | 约每分钟 | 质量 |
+|------|------|---------|------|
+| `.wav` | PCM 16bit | ~947 KB | 无损（PCM），体积浪费 |
+| `.ulaw` | G.711 8bit | ~473 KB | 8kHz 带宽下无损，体积适中 |
+| `.gsm` | GSM 06.10 | ~99 KB | 有损，电话语音针对性编码，体积最小 |
+| **`.wav49`** | GSM 封装进 WAV | ~100 KB | 同 GSM 编码，播放器兼容最好（**默认**） |
+
+- 电话/EC20 音频原生为 **8kHz 窄带**，高于 8kHz 的采样没有意义
+- 格式通过环境变量 `REC_FORMAT` 注入（start.sh 渲染 `__REC_FORMAT__`，默认 `wav49`，可切 `ulaw`）
+- 不采用 m4a/AAC：Asterisk 无 AAC 编码模块，MixMonitor 不能直接录；且 8kHz 下 AAC 体积与 GSM 相当，无额外收益，避免引入 ffmpeg 转码依赖
+
+### 17.4 联系人映射（contacts.csv）
+
+```
+config/contacts.csv.example   ← 仓库内模板（头行 + 注释示例）
+        ↓ setup.sh 复制
+<部署目录>/spool/contacts.csv ← 运行时文件（.gitignore，隐私不上库）
+        ↓ vcard_to_csv.py / 手工编辑
+号码,名字  数据行
+```
+
+- 格式：UTF-8 CSV，头行 `号码,名字`，每行一条，号码不含分隔符
+- 拨号计划通过 `${SHELL(grep -m1 "^号码," ... | cut -d, -f2 ...)}` 查询，未命中回退为号码（详见 §8.5）
+- **`scripts/vcard_to_csv.py`**（一次性导入工具）：
+  - 用法：`python3 scripts/vcard_to_csv.py 输入.vcf [输出.csv]`（默认输出 `<部署目录>/spool/contacts.csv`）
+  - 解析 vCard：`FN`（或 `N`）为名字，`TEL` 优先取 type 含 `cell`/`voice` 的号码，回退第一个 `TEL`
+  - 号码规范化：同一名字同时生成"原始号码"与"去掉 `+86`/`0086` 前缀"两行，提高与拨号计划侧 CALLERID 的匹配率；只保留数字
+  - 同名去重；默认不清空原文件（追加合并），`--replace` 可选全量覆盖
+
+### 17.5 归档守护 archive-recordings.sh（宿主机侧）
+
+纯 `bash` + `inotifywait`，不引入 rclone（归档目录已挂载到宿主机本地路径，直接 `cp` + `cmp` 即可）。
+
+**配置注入**：脚本为静态源码（无占位符），运行时从 `<部署目录>/.simgo-archive.conf`（由 setup.sh 生成，`.gitignore` 忽略）读取，shell 变量格式：
+
+```bash
+ARCHIVE_DIR=""        # 持久化归档目录；空串 = 不归档（录音仅本地保存）
+LOCAL_KEEP_DAYS=0     # 本地保留天数；0 = 不按天数清理
+LOCAL_MAX_MB=0        # 本地大小上限（MB）；0 = 不按大小清理
+```
+
+**配置变量**：
+
+| 变量 | 含义 | 取值 |
+|------|------|------|
+| `ARCHIVE_DIR` | 持久化归档目录 | 路径；**空串 = 不归档**（录音仅本地保存） |
+| `LOCAL_KEEP_DAYS` | 本地保留天数 | `0` = 不按天数清理 |
+| `LOCAL_MAX_MB` | 本地大小上限（MB） | `0` = 不按大小清理 |
+| `MONITOR_DIR` | 本地录音中转目录 | 脚本从自身路径推导：`<部署目录>/spool/monitor` |
+
+**两种运行模式**：
+
+- `--watch`（常驻守护）：`inotifywait -m -e close_write,moved_to --format '%f' "$MONITOR_DIR"` 监听新录音落盘，逐文件处理：
+  1. 等待 1s 落盘稳定
+  2. `ARCHIVE_DIR=""` → 跳过归档（仅本地保存，永不自动删除）
+  3. `month` 取文件 mtime 对应的 `%Y-%m`（`stat` 推导，补归档旧录音仍落到录制月份）；`mkdir -p "$ARCHIVE_DIR/$month"`
+  4. `timeout 120 cp` 到 `<ARCHIVE_DIR>/<month>/`（`cp -p` 保留 mtime）
+  5. `cmp` 逐字节校验
+  6. 校验通过：
+     - `LOCAL_KEEP_DAYS=0` 且 `LOCAL_MAX_MB=0` → 立即删除本地文件（A 模式）
+     - 否则保留本地（B/C 模式），由 `--scan` 按策略清理
+  7. 记录归档日志（文件、目标目录）
+
+- `--scan`（兜底扫描，供 cron 调用）：
+  1. 遍历 `MONITOR_DIR` 本地文件，尝试归档尚未归档/上次失败的文件（幂等，按 `--watch` 同一流程）
+  2. 执行本地清理：
+     - `LOCAL_KEEP_DAYS>0`：删除本地 mtime 超过 N 天的录音
+     - `LOCAL_MAX_MB>0`：本地总大小超上限时，按最旧优先删除直到达标
+  3. **保活**：检查 `--watch` 进程是否存活（按脚本 PID 锁 `pgrep -f "archive-recordings.sh --watch"`），不存在则重启
+
+**运行约束**：
+- 脚本自带 PID 锁（`--watch` 仅允许一个实例）
+- 所有 `cp` 用 `timeout` 包裹，防止归档目录不可达（如 NFS hard 挂载）时永久挂起
+- 日志写入 `<部署目录>/logs/recordings-archive.log`
+
+### 17.6 保留策略（局部存储语义）
+
+| 模式 | `ARCHIVE_DIR` | `LOCAL_KEEP_DAYS` / `LOCAL_MAX_MB` | 本地行为 |
+|------|--------------|-----------------------------------|---------|
+| A（默认） | 非空 | 均为 `0` | 归档校验成功即删本地，归档目录为唯一副本 |
+| B | 非空 | `KEEP_DAYS>0` | 本地保留最近 N 天（双保险），到期由 `--scan` 清理 |
+| C | 非空 | `MAX_MB>0` | 本地总量超上限删最旧，直到达标 |
+| B+C | 非空 | 两者均 >0 | 任一条件触发即清理旧录音 |
+| 不归档 | 空串 | — | 录音仅保存在本地，永不自动删除（可另配 `LOCAL_MAX_MB` 兜底） |
+
+**默认即方案 A**：归档完成后本地恒为空，`spool/monitor` 只作临时中转，不产生双副本。
+
+### 17.7 cron 设计
+
+由 setup.sh 安装，均带 `# SimGo-record` 标记（`# SimGo` 的子串，uninstall 的 `grep -v "# SimGo"` 会一并精确删除，§16 兼容）：
+
+```
+@reboot <部署目录>/scripts/archive-recordings.sh --watch >/dev/null 2>&1   # SimGo-record
+*/5 *    * * * <部署目录>/scripts/archive-recordings.sh --scan  >/dev/null 2>&1   # SimGo-record
+```
+
+setup.sh 用 `grep -Fq "archive-recordings.sh"` 独立去重（与 DuckDNS cron 的 `grep -Fq "duckdns-update.sh"` 去重互不干扰，避免交叉误判）。
+
+- `@reboot`：开机自动拉起常驻守护（cron 管理，无需 nohup/PID 文件）
+- `*/5`：兜底扫描（补归档 + 本地清理 + watch 保活），即使守护崩溃也能恢复
+
+### 17.8 为什么要"本地中转 + 守护归档"（PVE 时序容错）
+
+典型部署：宿主机为 PVE（Proxmox），NAS 是运行在 PVE 下的虚拟机，NFs/SMB 挂载点在 PVE 开机流程中可能早于 NAS VM 完全就绪。
+
+**若将归档目录直接 bind mount 给容器录制，存在两类真实风险**：
+
+1. **开机时序**：容器创建时 bind mount 源目录若不存在，Docker 会创建一个本地空目录并绑定；此后 NAS 挂载点才出现，**容器内的绑定不会自动切换**，录音会写入假目录"看似消失"，直到容器重启才恢复
+2. **运行中掉线**：NFS 默认 hard 挂载下 `write()` 会永久挂起 → 通话线程被阻塞，最坏情况下整个通话卡死
+
+因此录音必须与归档目录解耦：
+- 录音永远写入本地（bind mount 的 spool 目录），通话全程不依赖归档存储
+- 归档由宿主机守护负责，归档目录不可用时跳过、`timeout` 限时、恢复后 5 分钟内由 `--scan` 自动补传
+- 录音数据安全性优先（本地先有副本，校验通过才删）
+
+### 17.9 setup.sh 交互新增
+
+在既有步骤 10（Let's Encrypt 邮箱）之后、安装清单（步骤 12）之前插入新步骤：
+
+- **步骤 11：录音归档配置**
+  1. **自动录音总开关**：询问"是否启用自动通话录音？[Y/n]"（默认启用），写入 docker-compose 环境变量 `RECORDING_ENABLED`；关闭时跳过后续格式/归档询问，`REC_FORMAT` 归 `wav49`、`ARCHIVE_DIR` 归空、保留策略归 0（仍安装归档 cron/inotify-tools，便于日后开启）
+  2. **录音格式**：`wav49`（默认） / `ulaw`
+  3. **持久化归档目录**（脱敏提示，示例路径一律使用通用占位，不绑定任何具体部署环境）：
+     ```
+     请输入语音录音的持久化归档目录（录音归档的最终存放位置）：
+       - 常见做法：挂载到本机的 NAS 共享目录（NFS / SMB / WebDAV 等挂载点）
+       - 也可以是本机大容量磁盘目录（如 /data/recordings）
+       留空表示不启用归档，录音仅保存在本地：
+     ```
+     填写后校验目录存在且可写（`-w` 测试）；不存在或不可写时告警，允许留空继续
+  4. **本地保留策略**：询问"归档成功后本地如何处理"，输入格式 **`天数,MB`**（逗号分隔两个数字，`0` = 不启用该维度）：
+     - `30,500` → 保留 30 天 且 不超过 500MB（超限删最旧）
+     - `30` → 只按天数保留（不限制大小）
+     - `,500` → 只按大小限制（不按天数清理）
+     - 回车 / `0,0` → 默认 A：归档校验成功即删除本地（归档目录为唯一副本）
+     <br>解析为 `LOCAL_KEEP_DAYS` / `LOCAL_MAX_MB`（非数字输入忽略）
+- **依赖安装**：检查 `inotifywait`（`command -v inotifywait`），未安装则 `apt install -y inotify-tools`（写入安装清单）
+- **生成**：
+  - 生成 `.simgo-archive.conf`（写入 `ARCHIVE_DIR` / `LOCAL_KEEP_DAYS` / `LOCAL_MAX_MB`）
+  - `chmod +x scripts/archive-recordings.sh`
+  - 复制 `config/contacts.csv.example` 为 `<部署目录>/spool/contacts.csv`（若不存在）
+  - `mkdir -p <部署目录>/spool/monitor`
+- **cron**：安装 §17.7 两条 cron（带 `# SimGo-record` 标记、`grep -Fq "archive-recordings.sh"` 独立去重后追加）
+- **安装清单与 manifest 追加**：新 cron 行、生成的 `.simgo-archive.conf`、`spool/contacts.csv`、`spool/monitor` 目录记录
+
+### 17.10 未来增强（Backlog）
+
+| 需求 | 描述 | 涉及改动 |
+|------|------|---------|
+| Bot 管理联系人 | `/contact <名字> <号码>` 命令 + vcf 文件批量导入 | `telegram_bot.py`（命令 handler + 文档接收），写入 `spool/contacts.csv` |
+| iPhone 通讯录自动同步 | 快捷指令定期导出 vCard 上传，宿主机自动拉取转换 | 新增拉取/转换脚本 + 手机端快捷指令，依赖手机端配合 |
+
+两项目前均不实现，`contacts.csv` 格式保持兼容，未来可直接扩展。

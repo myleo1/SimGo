@@ -26,6 +26,8 @@ services:
       - TG_BOT_TOKEN=${TG_BOT_TOKEN}
       - TG_CHAT_ID=${TG_CHAT_ID}
       - TG_SOCKS5_PROXY=${TG_SOCKS5_PROXY}
+      - REC_FORMAT=${REC_FORMAT}
+      - RECORDING_ENABLED=${RECORDING_ENABLED}
     logging:
       driver: json-file
       options:

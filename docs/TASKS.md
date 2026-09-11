@@ -121,6 +121,49 @@
 - [ ] 设备热插拔
 - [ ] 网络异常恢复
 
+## 阶段六：通话录音与归档
+
+### 6.1 拨号计划录音
+- [ ] `config/extensions_custom.conf`：去电 `from-internal` 在 Dial 前插入 MixMonitor（`b` 选项 + 联系人查询）
+- [ ] `config/extensions_custom.conf`：来电 `incoming-mobile` 的 `dial_now` 分支在 Dial 前插入 MixMonitor
+- [ ] 验证既有 `sms` / `ussd` / `check_reg` / `timeout` 流程未被破坏
+
+### 6.2 start.sh
+- [ ] `mkdir -p /var/spool/asterisk/monitor`
+- [ ] 渲染 `__REC_FORMAT__`（默认 `wav49`，`REC_FORMAT` 空值兜底）
+- [ ] 录音总开关：`RECORDING_ENABLED` 非 `yes` 时删除拨号计划中的 `SIMGO_REC_OUT/IN_BEGIN..END` 区间
+
+### 6.3 归档守护
+- [ ] `scripts/archive-recordings.sh`：`--watch` 常驻守护（inotifywait、cp + cmp 校验、A/B/C 保留策略）
+- [ ] `scripts/archive-recordings.sh`：`--scan` 兜底扫描（补归档 + 本地清理 + watch 保活）
+- [ ] PID 锁与 `timeout` 防挂起
+
+### 6.4 联系人导入
+- [ ] `config/contacts.csv.example` 模板
+- [ ] `scripts/vcard_to_csv.py`（vCard 解析、号码规范化、+86 双行）
+
+### 6.5 setup.sh 扩展
+- [ ] 收集自动录音总开关（`RECORDING_ENABLED`，默认启用）+ 录音格式（wav49/ulaw）
+- [ ] 收集持久化归档目录（脱敏提示）+ 本地保留策略（天数,MB 格式）
+- [ ] 安装 `inotify-tools`
+- [ ] 生成 `spool/contacts.csv` 模板、`spool/monitor` 目录
+- [ ] 安装 `@reboot` + `*/5` 两条 cron（带 `# SimGo-record` 标记，`grep -Fq "archive-recordings.sh"` 独立去重）
+- [ ] 安装清单文本与 `.simgo-manifest` 同步
+
+### 6.6 文档同步
+- [ ] REQUIREMENTS.md（需求 + Backlog）
+- [ ] DESIGN.md（§17 录音归档章节）
+- [ ] README.md / README.en.md（双语）
+- [ ] PROMPT-RECORD.md（迭代 prompt）
+
+### 6.7 人工测试
+- [ ] 去电/来电各打一通，确认 `spool/monitor/` 生成 `*_out_*.wav49` / `*_in_*.wav49`
+- [ ] 联系人已收录号码 → 文件名用名字；未收录 → 用号码
+- [ ] 确认录音归档到 `<归档目录>/<YYYY-MM>/` 且本地已清理（A 模式）
+- [ ] 录制至少 10 分钟通话，估算文件大小（约 0.1MB/分钟）
+- [ ] 停掉归档存储 VM，再打一通：录音留在本地，恢复后 5 分钟内自动补归档
+- [ ] `cmp` 校验失败场景（可选）：手动制造差异，确认本地保留 + 日志记录
+
 ## 优先级
 
 | 优先级 | 任务 | 说明 |
@@ -139,3 +182,4 @@
 | P1 | README | 项目文档 |
 | P1 | 完整功能测试 | 验证通话/短信 |
 | P2 | 多模块支持 | 扩展功能 |
+| P2 | 通话录音与归档 | 双向录音 + NAS 归档 |

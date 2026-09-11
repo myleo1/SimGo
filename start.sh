@@ -7,6 +7,12 @@ SCRIPT_DIR="/etc/asterisk/scripts"
 
 # 1. 初始化目录和文件
 mkdir -p /var/log/asterisk/cdr-csv
+mkdir -p /var/spool/asterisk/monitor
+
+# 录音格式（wav49 默认，可切换 ulaw）
+REC_FORMAT="${REC_FORMAT:-wav49}"
+# 自动录音总开关（setup.sh 配置，关闭时移除拨号计划中的录音区间）
+RECORDING_ENABLED="${RECORDING_ENABLED:-yes}"
 
 # 2. 渲染配置模板（sed 替换占位符）
 render_config() {
@@ -26,6 +32,7 @@ render_config() {
         -e "s|__WECHAT_WORK_API__|${WECHAT_WORK_API}|g" \
         -e "s|__WECHAT_WORK_TOKEN__|${WECHAT_WORK_TOKEN}|g" \
         -e "s|__WECHAT_WORK_TO__|${WECHAT_WORK_TO}|g" \
+        -e "s|__REC_FORMAT__|${REC_FORMAT}|g" \
         "${CONFIG_DIR}/${dst}"
 }
 
@@ -35,6 +42,12 @@ render_config extensions_custom.conf extensions_custom.conf
 render_config quectel.conf quectel.conf
 render_config modules.conf modules.conf
 render_config rtp.conf rtp.conf
+
+# 自动录音关闭时，删除拨号计划中的录音区间（含标记注释行）
+if [ "${RECORDING_ENABLED}" != "yes" ]; then
+    sed -i '/; SIMGO_REC_OUT_BEGIN/,/; SIMGO_REC_OUT_END/d' "${CONFIG_DIR}/extensions_custom.conf"
+    sed -i '/; SIMGO_REC_IN_BEGIN/,/; SIMGO_REC_IN_END/d' "${CONFIG_DIR}/extensions_custom.conf"
+fi
 
 # bot.conf 模板在 scripts/ 目录，渲染到 /etc/asterisk/bot.conf
 cp "${SCRIPT_DIR}/bot.conf" "${CONFIG_DIR}/bot.conf"

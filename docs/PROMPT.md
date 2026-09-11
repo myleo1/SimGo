@@ -1,5 +1,7 @@
 # SimGo Vibe Coding Prompt
 
+> 本文档描述 SimGo **初始搭建**。后续功能迭代的实现规范见 **[`docs/PROMPT-RECORD.md`](PROMPT-RECORD.md)**（当前为：自动通话录音与归档）。
+
 ## 项目概述
 
 SimGo 是一个远程蜂窝电话网关：将 Quectel EC20 4G 模块通过 USB 连接到 Linux 主机，运行容器化的 Asterisk 服务，手机通过 SIP 客户端（Groundwire）实现远程接打电话、收发短信。

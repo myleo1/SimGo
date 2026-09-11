@@ -2,6 +2,7 @@
 /docker-compose.yml
 duckdns-update.sh
 .simgo-manifest
+.simgo-archive.conf
 
 # 证书、日志和运行时数据
 certs/

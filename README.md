@@ -62,6 +62,7 @@ graph TB
             SMS[sms_notify.py<br/>短信通知]
         end
         F2B[Fail2ban<br/>防护]
+        ARC[archive-recordings.sh<br/>录音归档守护]
     end
 
     subgraph "硬件"
@@ -85,6 +86,7 @@ graph TB
     4G <--> PSTN
     PSTN <-->|"来电/短信"| SIM
     F2B -.->|"封禁爆破 IP"| AS
+    AS -.->|"spool/monitor 录音"| ARC
 
     style AS fill:#4a90d9,color:#fff
     style EC20 fill:#e74c3c,color:#fff
@@ -253,12 +255,17 @@ chmod +x setup.sh
 8. **企业微信配置**（可选，需先部署 [wechat-work-pusher](https://github.com/myleo1/wechat-work-pusher) 服务端）
 9. **DuckDNS Token**（用于签发 TLS 证书和 IP 自动更新）
 10. **Let's Encrypt 邮箱**（acme.sh 账户注册用，证书到期前会收到提醒邮件）
+11. **通话录音与归档**（可选）：是否启用自动录音、录音格式（`wav49`/`ulaw`）、持久化归档目录、本地保留策略
 
 脚本会自动生成：
 - `docker-compose.yml`
 - 各配置文件（PJSIP、Quectel、Telegram Bot 等）
 - TLS 证书（通过 DuckDNS 签发 Let's Encrypt 证书）
 - `duckdns-update.sh`（DuckDNS IP 自动更新脚本，安装 cron 每 5 分钟更新）
+- `.simgo-archive.conf`（录音归档配置）
+- `spool/contacts.csv`（联系人映射，可选编辑）
+- `spool/monitor/`（录音临时中转目录）
+- 录音归档 cron：`@reboot` 启动常驻守护 + 每 5 分钟兜底扫描
 
 然后启动服务：
 
@@ -340,6 +347,54 @@ Fork 后也可在 Actions 页面手动触发构建。
 > 部署时需提供 DuckDNS 域名和 Token（[duckdns.org](https://www.duckdns.org/) 免费注册）。脚本会自动安装 acme.sh 并完成证书签发。
 
 **⚠️ 强口令要求**：PJSIP 密码是公网 SIP 服务的唯一认证凭据。请务必使用强口令（32 位以上随机字符串）。推荐使用 前缀 + 随机字符作为用户名（例如 `gw_7Kx92mQ4`），避免使用 `1001`、`1000` 等数字分机号。
+
+## 通话录音与归档
+
+### 开关
+
+部署时（setup.sh）可选择是否启用自动录音，**默认启用**。已部署后想关闭/重新开启，改 `docker-compose.yml` 里环境变量 `RECORDING_ENABLED` 为 `no` / `yes`，然后 `docker compose up -d` 重建容器生效，无需改动拨号计划。关闭后录音配套（归档守护 cron、联系人表、格式设置）保留不动，改回 `yes` 即恢复。
+
+### 录音格式
+
+电话 / EC20 音频原生为 **8kHz 窄带**，高于 8kHz 的采样没有意义。部署时可选择：
+
+| 格式 | 编码 | 约每分钟 | 说明 |
+|------|------|---------|------|
+| `wav49`（默认） | GSM 封装进 WAV | ~100 KB | 电话语音针对性编码，播放器兼容最好 |
+| `ulaw` | G.711 8bit | ~470 KB | 8kHz 带宽下无失真，体积偏大 |
+
+### 归档机制
+
+- **自动双向录音**：通话接通后才开始录制（不录振铃/等待音），挂机自动停止
+- 录音先落盘本地中转目录 `spool/monitor/`，由宿主机守护（inotifywait）**逐字节校验**后归档到持久化归档目录，按 `YYYY-MM/` 月目录组织
+- 归档目录留空（部署时不填）= 不启用归档，录音仅保存在本地
+- **持久化归档目录建议**：挂载到本机的 NAS 共享目录（NFS / SMB / WebDAV 挂载点）或本机大容量磁盘目录
+
+> **为什么不在容器里直写归档目录？** 若归档目录为 NAS 挂载点，容器启动时挂载可能尚未就绪（bind mount 会静默绑定一个空目录），且掉线时 NFS `write()` 可能永久阻塞通话。因此录音永远先写本地，由宿主机守护负责归档，归档存储不可用时自动跳过、恢复后在 5 分钟内补传。
+
+### 本地保留策略
+
+归档校验成功后本地录音如何处理（部署时选择）：
+
+| 模式 | 行为 |
+|------|------|
+| A（默认） | 归档成功即删除本地，归档目录为唯一副本 |
+| B | 本地保留 N 天（双保险） |
+| C | 本地不超过大小上限 MB（超限删最旧） |
+| B+C | 两种条件任一触发即清理 |
+
+### 联系人命名（可选）
+
+`spool/contacts.csv`（UTF-8，`号码,名字` 每行）用于把录音文件名里的号码换成联系人名，未收录的号码回退为号码本身。示例：`20260911-153045_in_张三_13800138000.wav49`
+
+两种方式维护：
+1. **手工编辑** `spool/contacts.csv`（参考 `config/contacts.csv.example` 模板）
+2. **从 iPhone 通讯录导入**（一次性，自动生成 `+86`/去 `86` 前缀变体提高匹配率）：
+   - 电脑浏览器登录 [iCloud 通讯录](https://www.icloud.com/contacts)，全选 → 导出 vCard（`.vcf`）
+   - 执行：`python3 scripts/vcard_to_csv.py 你的通讯录.vcf`
+   - 默认输出覆盖 `<部署目录>/spool/contacts.csv`
+
+> 录音归档日志与故障排查：`logs/recordings-archive.log`。卸载 SimGo 会删除本地录音与联系人表，**归档目录不受影响**。
 
 ## 使用说明
 
@@ -447,11 +502,14 @@ SimGo/
 │   ├── extensions_custom.conf
 │   ├── quectel.conf
 │   ├── modules.conf
-│   └── rtp.conf
-├── scripts/                # 通知和 Bot 脚本
+│   ├── rtp.conf
+│   └── contacts.csv.example # 联系人映射模板（复制为 spool/contacts.csv）
+├── scripts/                # 通知、Bot 与录音脚本
 │   ├── sms_notify.py
 │   ├── telegram_bot.py
-│   └── bot.conf            # Bot 配置文件（模板）
+│   ├── bot.conf            # Bot 配置文件（模板）
+│   ├── archive-recordings.sh # 录音归档守护（--watch/--scan）
+│   └── vcard_to_csv.py     # iPhone 通讯录 vCard → contacts.csv 导入工具
 ├── docker/                 # Docker 相关文件
 │   ├── Dockerfile
 │   └── docker-compose.yml
@@ -463,12 +521,17 @@ SimGo/
 ├── .github/                # GitHub Actions
 │   └── workflows/
 │       └── build.yml
+├── .simgo-archive.conf      # 录音归档配置（setup.sh 生成，git 忽略）
 ├── setup.sh                # 交互式部署脚本
 ├── uninstall.sh            # 卸载脚本
+├── spool/                  # 运行时数据（git 忽略）
+│   ├── contacts.csv        # 联系人映射（录音文件名用）
+│   └── monitor/            # 录音临时中转目录
 ├── docs/                   # 项目文档
 │   ├── REQUIREMENTS.md
 │   ├── DESIGN.md
-│   └── TASKS.md
+│   ├── TASKS.md
+│   └── PROMPT-RECORD.md
 ├── LICENSE                 # GPL v2 许可证
 └── README.md
 ```
