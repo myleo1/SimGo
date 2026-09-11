@@ -37,6 +37,9 @@ def parse_vcard(path):
             key, _, value = line.partition(":")
             # vCard 属性可带参数，如 FN;CHARSET=UTF-8 或 TEL;TYPE=CELL
             attr = key.split(";", 1)[0].upper()
+            if "." in attr:
+                # 去掉 vCard 属性组前缀（Apple 系写法），如 item1.TEL → TEL
+                attr = attr.split(".", 1)[1]
             params = key.split(";", 1)[1] if ";" in key else ""
             value = value.strip()
             if attr in ("FN", "N"):
@@ -71,14 +74,19 @@ def _clean_number(value):
 
 
 def normalize_numbers(num):
-    """返回需要写入的行列表：原始号码 + 去掉+86/0086前缀。"""
+    """返回需要写入的行列表：原始号码 + 去掉+86前缀的真实手机号（1[3-9] 号段）。"""
     variants = []
-    if num.startswith("86") and len(num) == 13 and num.startswith("8613"):
+
+    def is_cn_mobile(s):
+        # 86 去掉后为 1[3-9] 开头的 11 位手机号（131-199）；排除 8610/8620 等非手机前缀
+        return len(s) == 13 and s[2] == "1" and s[3] in "3456789"
+
+    if num.startswith("86") and is_cn_mobile(num):
         variants.append(num[2:])
     if num.startswith("0086"):
         stripped = num[4:]
         variants.append(stripped)
-        if stripped.startswith("86") and len(stripped) == 13:
+        if is_cn_mobile(stripped):
             variants.append(stripped[2:])
     variants.append(num)
     # 去重保序

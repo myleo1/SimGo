@@ -62,7 +62,7 @@ SimGo 将 Quectel EC20 4G 模块通过 USB 接入 Linux 主机，运行容器化
 ### 4. 联系人（contacts.csv）
 
 - 模板 `config/contacts.csv.example` → setup.sh 复制为 `<部署目录>/spool/contacts.csv`（git 忽略）
-- `vcard_to_csv.py`（一次性）：解析 `.vcf`（FN/N + TEL），+86 双行处理，合并去重
+- `vcard_to_csv.py`（一次性）：解析 `.vcf`（FN/N + TEL，兼容 Apple `item1.TEL` 组前缀），去 `+86` 前缀双行处理（手机号段才去），合并去重
 - 隐私：真实数据只进运行时 `spool/`，不上库
 
 ### 5. setup.sh 新增交互

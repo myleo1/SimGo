@@ -388,7 +388,7 @@ What happens to local recordings after a successful archive (chosen during deplo
 
 Maintain it two ways:
 1. **Edit manually** `spool/contacts.csv` (see the `config/contacts.csv.example` template)
-2. **Import from iPhone contacts** (one-time; auto-generates `+86`/no-prefix variants to improve matching):
+2. **Import from iPhone contacts** (one-time; works with vCard exports from both Apple and Android, auto-generates `+86`-stripped variant rows for mobile number ranges to improve matching):
    - Export contacts as vCard (`.vcf`) from [iCloud Contacts](https://www.icloud.com/contacts) on a computer (select all → export vCard)
    - Run: `python3 scripts/vcard_to_csv.py your-contacts.vcf`
    - Default output overwrites `<deploy-dir>/spool/contacts.csv`

@@ -389,7 +389,7 @@ Fork 后也可在 Actions 页面手动触发构建。
 
 两种方式维护：
 1. **手工编辑** `spool/contacts.csv`（参考 `config/contacts.csv.example` 模板）
-2. **从 iPhone 通讯录导入**（一次性，自动生成 `+86`/去 `86` 前缀变体提高匹配率）：
+2. **从 iPhone 通讯录导入**（一次性，兼容 Apple / 安卓导出的 vCard 写法，自动生成"去 `+86` 前缀"变体行（手机号段）提高匹配率）：
    - 电脑浏览器登录 [iCloud 通讯录](https://www.icloud.com/contacts)，全选 → 导出 vCard（`.vcf`）
    - 执行：`python3 scripts/vcard_to_csv.py 你的通讯录.vcf`
    - 默认输出覆盖 `<部署目录>/spool/contacts.csv`

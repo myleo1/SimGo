@@ -1021,7 +1021,8 @@ config/contacts.csv.example   ← 仓库内模板（头行 + 注释示例）
 - **`scripts/vcard_to_csv.py`**（一次性导入工具）：
   - 用法：`python3 scripts/vcard_to_csv.py 输入.vcf [输出.csv]`（默认输出 `<部署目录>/spool/contacts.csv`）
   - 解析 vCard：`FN`（或 `N`）为名字，`TEL` 优先取 type 含 `cell`/`voice` 的号码，回退第一个 `TEL`
-  - 号码规范化：同一名字同时生成"原始号码"与"去掉 `+86`/`0086` 前缀"两行，提高与拨号计划侧 CALLERID 的匹配率；只保留数字
+  - 兼容 Apple/iCloud 导出的带 vCard 属性组前缀写法（`item1.TEL;type=pref` 等），属性名前缀 `itemN.` 会被剥除；安卓（`TEL;TYPE=CELL` / `TEL;CELL`）同样支持
+  - 号码规范化：同一名字同时生成"原始号码"与"去掉 `+86`/`0086` 前缀"两行（去前缀仅当结果为 `1[3-9]` 开头的 11 位手机号，排除 `8610/8620` 等非手机写法），提高与拨号计划侧 CALLERID 的匹配率；只保留数字
   - 同名去重；默认不清空原文件（追加合并），`--replace` 可选全量覆盖
 
 ### 17.5 归档守护 archive-recordings.sh（宿主机侧）
@@ -1051,7 +1052,7 @@ LOCAL_MAX_MB=0        # 本地大小上限（MB）；0 = 不按大小清理
   1. 等待 1s 落盘稳定
   2. `ARCHIVE_DIR=""` → 跳过归档（仅本地保存，永不自动删除）
   3. `month` 取文件 mtime 对应的 `%Y-%m`（`stat` 推导，补归档旧录音仍落到录制月份）；`mkdir -p "$ARCHIVE_DIR/$month"`
-  4. `timeout 120 cp` 到 `<ARCHIVE_DIR>/<month>/`（`cp -p` 保留 mtime）
+  4. `timeout 120 cp` 到 `<ARCHIVE_DIR>/<month>/`（优先 `cp -p` 保留 mtime；NAS 不支持保留属主时报 `Operation not permitted`，降级为普通复制，最终以 `cmp` 内容校验为准）
   5. `cmp` 逐字节校验
   6. 校验通过：
      - `LOCAL_KEEP_DAYS=0` 且 `LOCAL_MAX_MB=0` → 立即删除本地文件（A 模式）
@@ -1068,6 +1069,7 @@ LOCAL_MAX_MB=0        # 本地大小上限（MB）；0 = 不按大小清理
 **运行约束**：
 - 脚本自带 PID 锁（`--watch` 仅允许一个实例）
 - 所有 `cp` 用 `timeout` 包裹，防止归档目录不可达（如 NFS hard 挂载）时永久挂起
+- 录音文件扩展名按**大小写不敏感**匹配（MixMonitor 的 wav49 落盘为 `.WAV` 大写），`--scan` 与本地清理均覆盖
 - 日志写入 `<部署目录>/logs/recordings-archive.log`
 
 ### 17.6 保留策略（局部存储语义）

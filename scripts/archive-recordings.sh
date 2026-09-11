@@ -29,7 +29,7 @@ if [ -f "${CONFIG_FILE}" ]; then
     . "${CONFIG_FILE}"
 fi
 
-FILE_PATTERNS=(-name '*.wav49' -o -name '*.ulaw' -o -name '*.gsm' -o -name '*.wav')
+FILE_PATTERNS=(-iname '*.wav49' -o -iname '*.ulaw' -o -iname '*.gsm' -o -iname '*.wav')
 
 log() {
     echo "$(date '+%F %T') $*" >> "$LOG_FILE"
@@ -82,18 +82,18 @@ archive_file() {
         return 0
     fi
 
-    if ! timeout 120 cp -p "$src" "$dst_path"; then
-        log "WARN 归档失败: ${base} → ${dst_path}（归档存储可能不可用）"
-        return 1
+    # 优先带元数据复制（cp -p 保留 mtime）；NAS 不支持保留属主（如 SMB/NFS 落不同 uid）时
+    # cp -p 会报 Operation not permitted 并非零退出，此时降级为普通复制，最终以 cmp 内容校验为准
+    if ! timeout 120 cp -p "$src" "$dst_path" 2>/dev/null; then
+        timeout 120 cp "$src" "$dst_path" 2>/dev/null
     fi
     if cmp -s "$src" "$dst_path"; then
         log "OK 归档: ${base} → ${dst_path}"
         handle_local "$src"
         return 0
-    else
-        log "ERROR 校验失败: ${base}（保留本地，等待重试）"
-        return 1
     fi
+    log "ERROR 归档失败: ${base} → ${dst_path}（归档存储可能不可用）"
+    return 1
 }
 
 # 本地保留策略清理（B/C 模式）
@@ -149,7 +149,7 @@ scan_mode() {
     for f in "${MONITOR_DIR}"/*; do
         [ -f "$f" ] || continue
         case "$f" in
-            *.wav49|*.ulaw|*.gsm|*.wav) ;;
+            *.wav49|*.ulaw|*.gsm|*.wav|*.WAV) ;;
             *) continue ;;
         esac
         archive_file "$f"
