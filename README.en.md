@@ -301,7 +301,7 @@ Pull from GitHub Container Registry instead of building locally:
 docker pull ghcr.io/myleo1/simgo:latest
 
 # Or specific version
-docker pull ghcr.io/myleo1/simgo:1.1.0
+docker pull ghcr.io/myleo1/simgo:1.3
 ```
 
 Then replace the `build` section in `docker-compose.yml` with:
