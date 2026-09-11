@@ -40,6 +40,15 @@
 - **配置隔离**：配置文件与系统分离，不会污染宿主机
 - **易于维护**：升级、回滚、备份都很方便
 
+## 功能特性
+
+- **远程通话 + 短信**：SIM 卡插在本机（树莓派 / 小主机 / NAS），随时随地远程接打电话、收发短信
+- **自动通话录音（可选）**：去电 / 来电自动录制，接通后才开始录；录音用联系人姓名命名，经 `cp + cmp` 逐字节校验后按 `YYYY-MM` 归档到 NAS 等持久化目录（也可仅本地保存），支持归档即删 / 保留 N 天 / 大小上限，详见[通话录音与归档](#通话录音与归档)
+- **TLS / SRTP 加密**：PJSIP over TLS（端口 52060）+ SRTP 媒体加密
+- **通知中心**：来电 / 短信推送 Telegram（可配企业微信兜底），Bot 支持远程命令
+- **Fail2ban 防护**：自动封禁 SIP 暴力破解 IP（nftables）
+- **一键部署**：setup.sh 一键初始化 DuckDNS TLS 证书、fail2ban、录音归档守护与日志轮转
+
 ## 架构
 
 ```mermaid
@@ -63,6 +72,7 @@ graph TB
         end
         F2B[Fail2ban<br/>防护]
         ARC[archive-recordings.sh<br/>录音归档守护]
+        NASD[归档存储<br/>NAS / 本地磁盘]
     end
 
     subgraph "硬件"
@@ -87,6 +97,7 @@ graph TB
     PSTN <-->|"来电/短信"| SIM
     F2B -.->|"封禁爆破 IP"| AS
     AS -.->|"spool/monitor 录音"| ARC
+    ARC ==>|"cp + cmp 校验 → YYYY-MM/"| NASD
 
     style AS fill:#4a90d9,color:#fff
     style EC20 fill:#e74c3c,color:#fff
@@ -232,7 +243,7 @@ usb-Quectel_Wireless_EC20-if02 -> ../../ttyUSB2
 - Docker 和 Docker Compose 已安装
 - EC20 模块已完成上述初始化
 - 已创建 Telegram Bot（通过 [@BotFather](https://t.me/BotFather)）
-- fail2ban 和 nftables（setup.sh 会自动安装，用于 SIP 爆破防护）
+- 已注册 DuckDNS 域名并获取 Token（[duckdns.org](https://www.duckdns.org/) 免费注册，在 DuckDNS 控制台创建子域名并复制 token）
 
 ### 快速部署
 

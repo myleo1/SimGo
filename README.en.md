@@ -40,6 +40,15 @@ Different Linux distros ship vastly different Asterisk versions, and compiling c
 - **Clean separation**: Config files stay isolated from the host system
 - **Easy maintenance**: Upgrade, rollback, backup — all straightforward
 
+## Features
+
+- **Remote calls & SMS**: SIM in a home host (Raspberry Pi / mini PC / NAS) — make/receive calls and send/receive SMS from anywhere
+- **Automatic call recording (optional)**: Records both directions, starts after the call is answered. Filenames use contact names; files are byte-verified (`cp` + `cmp`) and archived monthly (`YYYY-MM/`) to a persistent directory such as a NAS (or kept local only). Retention: delete-after-archive / keep N days / size cap. See [Call recording and archiving](#call-recording-and-archiving)
+- **TLS/SRTP encryption**: PJSIP over TLS (port 52060) + SRTP media encryption
+- **Notifications**: Calls & SMS pushed to Telegram (WeChat Work as fallback), bot supports remote commands
+- **Fail2ban protection**: Auto-bans SIP brute-force IPs (nftables)
+- **One-command setup**: setup.sh initializes DuckDNS TLS certificates, fail2ban, recording archiver and log rotation
+
 ## Architecture
 
 ```mermaid
@@ -63,6 +72,7 @@ graph TB
         end
         F2B[Fail2ban<br/>Protection]
         ARC[archive-recordings.sh<br/>Recording Archive Daemon]
+        NASD[Archive Storage<br/>NAS / Local Disk]
     end
 
     subgraph "Hardware"
@@ -87,6 +97,7 @@ graph TB
     PSTN <-->|"Calls/SMS"| SIM
     F2B -.->|"Ban Brute Force"| AS
     AS -.->|"spool/monitor recordings"| ARC
+    ARC ==>|"cp + cmp verify → YYYY-MM/"| NASD
 
     style AS fill:#4a90d9,color:#fff
     style EC20 fill:#e74c3c,color:#fff
@@ -232,7 +243,7 @@ The `usb-Quectel_Wireless_EC20-if02` part is the AT port path you'll need during
 - Docker and Docker Compose installed
 - EC20 module initialized (steps above)
 - Telegram Bot created (via [@BotFather](https://t.me/BotFather))
-- fail2ban and nftables (setup.sh installs these automatically for SIP brute-force protection)
+- A DuckDNS domain registered and its Token (free at [duckdns.org](https://www.duckdns.org/); create a subdomain in the DuckDNS console and copy the token)
 
 ### Quick Deploy
 
@@ -347,7 +358,7 @@ SimGo enables TLS and SRTP by default:
 
 **⚠️ Strong password required**: The PJSIP password is the only authentication credential for the public SIP service. Use a strong password (32+ random characters). Use a prefix + random string for the username (e.g. `gw_7Kx92mQ4`), avoid numeric extensions like `1001` or `1000`.
 
-## Call Recording & Archiving
+## Call Recording and Archiving
 
 ### Enable / Disable
 
