@@ -36,7 +36,7 @@ SimGo 将 Quectel EC20 4G 模块通过 USB 接入 Linux 主机，运行容器化
 - `MixMonitor(/var/spool/asterisk/monitor/${REC_TIME}_${dir}_${REC_NAME}_${号码}.__REC_FORMAT__,b)`
 - `b` = 仅 bridge 期间录（不录等待/振铃），挂机自动写盘
 - 去电 `dir=out`、对方号码=`${EXTEN}`；来电 `dir=in`、对方号码=`${CALLERID(num)}`
-- 联系人：`${SHELL(grep -m1 "^<号码>," /var/spool/asterisk/contacts.csv ...)}`，未命中回退号码，空格→`_`，号码先 `${FILTER(0-9,...)}` 规范化
+- 联系人：`${SHELL(grep -m1 "^<号码>," /var/spool/asterisk/contacts.csv ...)}`，命中→名字直入文件名；未命中→名字位置为空（文件名如 `..._in__号码`），号码始终保留；空格→`_` 用 `REPLACE(REC_NAME, ,_)`（取变量名，勿写 `${REC_NAME}`）；勿用 `$[...]`/`LEN` 判断中文值（UTF-8 解析错乱）；号码先 `${FILTER(0-9,...)}` 规范化
 - 录音块包在 `; SIMGO_REC_OUT_BEGIN/END`、`; SIMGO_REC_IN_BEGIN/END` 注释区间中；`RECORDING_ENABLED`（默认 `yes`）非 `yes` 时由 start.sh 渲染后 `sed` 删除区间（拨号计划回退为不录音）
 - 不破坏既有 `sms`/`ussd`/`check_reg`/`timeout` 流程
 
