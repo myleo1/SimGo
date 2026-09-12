@@ -62,7 +62,7 @@ SimGo 将 Quectel EC20 4G 模块通过 USB 接入 Linux 主机，运行容器化
 
 - 用法：`python3 /etc/asterisk/scripts/notify_alarm.py "<标题>" "<正文>"`（容器内路径）。
 - 读取 `/etc/asterisk/bot.conf`（key：`BOT_TOKEN`/`CHAT_ID`/`SOCKS5_PROXY`，企微 `WECHAT_WORK_API`/`WECHAT_WORK_TOKEN`/`WECHAT_WORK_TO`）。
-- **Telegram**：`sendMessage`、HTML、复用 `telegram_bot.py` 的 `requests.post` + `proxies`（SOCKS5）风格；消息结构：`🔧 <b>标题</b>` + 正文（`<pre>`）。
+- **Telegram**：`sendMessage`、HTML、复用 `telegram_bot.py` 的 `requests.post` + `proxies`（SOCKS5）风格；消息结构：`🔧 <b>标题</b>` + 纯文本正文（保留换行，不加 `<pre>`/`<code>` 代码包裹）。
 - **企业微信**：复用 `sms_notify.py:send_wechat()` 的 session-cookie API 规格：`POST {API}`，header `Cookie: session={token}`，body `{"to": ..., "content": ...}`，纯文本；含 `__` 占位符未替换或配置缺失 → 跳过该通道。
 - 双通道全失败 → `exit 1`（watchdog 只记日志，不影响主流程）。
 - watchdog 宿主侧调用：`docker exec simgo python3 /etc/asterisk/scripts/notify_alarm.py "$TITLE" "$BODY"`（远程通信不可达时 `docker exec` 失败 → 只记日志）。

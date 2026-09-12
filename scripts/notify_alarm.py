@@ -46,7 +46,7 @@ def send_telegram(config, title, body):
     socks5 = config.get("SOCKS5_PROXY")
     proxies = {"http": socks5, "https": socks5} if not _unconfigured(socks5) else None
 
-    text = "🔧 <b>{}</b>\n\n<pre>{}</pre>".format(
+    text = "🔧 <b>{}</b>\n\n{}".format(
         html.escape(title), html.escape(body)
     )
     response = requests.post(
