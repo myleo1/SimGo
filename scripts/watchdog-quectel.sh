@@ -90,10 +90,13 @@ state_set() {
 
 # --- notification ---------------------------------------------------------------
 notify() {
-	local dev="$1" title="$2" body="$3"
+	local dev="$1" title="$2" body="$3" out
 	[ "${NOTIFY_ENABLED}" = "yes" ] || return 0
-	docker exec "${CONTAINER}" python3 /etc/asterisk/scripts/notify_alarm.py "${title}" "${body}" >/dev/null 2>&1 ||
-		log_msg "WARN" "$dev" "notification send failed"
+	out="$(docker exec "${CONTAINER}" python3 /etc/asterisk/scripts/notify_alarm.py "${title}" "${body}" 2>&1)" || {
+		log_msg "WARN" "$dev" "notification send failed: ${out}"
+		return 1
+	}
+	return 0
 }
 
 # --- recovery chains -------------------------------------------------------------

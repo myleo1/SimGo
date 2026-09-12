@@ -50,7 +50,7 @@ def send_telegram(config, title, body):
         html.escape(title), html.escape(body)
     )
     response = requests.post(
-        f"{TELEGRAM_API}/{token}/sendMessage",
+        f"{TELEGRAM_API}{token}/sendMessage",
         data={
             "chat_id": chat_id,
             "text": text,
@@ -89,8 +89,16 @@ def main():
     title, body = sys.argv[1], sys.argv[2]
     config = load_config()
 
-    ok_tg = send_telegram(config, title, body)
-    ok_wx = send_wechat(config, title, body)
+    ok_tg = False
+    ok_wx = False
+    try:
+        ok_tg = bool(send_telegram(config, title, body))
+    except Exception as e:
+        print(f"telegram channel failed: {e}", file=sys.stderr)
+    try:
+        ok_wx = bool(send_wechat(config, title, body))
+    except Exception as e:
+        print(f"wechat channel failed: {e}", file=sys.stderr)
 
     if ok_tg or ok_wx:
         return 0
