@@ -53,18 +53,20 @@ Different Linux distros ship vastly different Asterisk versions, and compiling c
 ## Architecture
 
 ```mermaid
-graph TB
-    subgraph "Phone"
+graph LR
+    subgraph PHONE["Phone"]
         GW[Groundwire<br/>SIP Client]
     end
 
-    subgraph "Internet"
+    subgraph WEB["Internet"]
         TG[Telegram Bot API]
         WX[WeChat Work API<br/>Optional]
     end
 
-    subgraph "Host (Linux)"
-        subgraph "Docker Container (SimGo)"
+    subgraph HOST["Host (Linux)"]
+        direction TB
+        subgraph CONT["Docker Container SimGo"]
+            direction TB
             AS[Asterisk]
             PS[PJSIP<br/>TLS 52060]
             QC[chan-quectel<br/>UAC Audio]
@@ -78,30 +80,28 @@ graph TB
         NASD[Archive Storage<br/>NAS / Local Disk]
     end
 
-    subgraph "Hardware"
+    subgraph HARD["Hardware"]
         EC20[EC20 4G Module]
         SIM[SIM Card]
     end
 
-    subgraph "Network"
+    subgraph CELL["Network"]
         4G[4G Cellular]
         PSTN[PSTN / Carrier]
     end
 
     GW <-->|"SIP over TLS<br/>SRTP"| AS
-    AS <--> PS
-    AS <--> QC
     BOT <-->|"HTTPS"| TG
     SMS <-->|"HTTPS"| WX
-    WD -.->|"cron */2<br/>docker exec"| AS
-    WD --> NA
     NA -->|"HTTPS"| TG
     NA -->|"HTTPS"| WX
     QC <-->|"USB<br/>AT + Audio"| EC20
     EC20 <--> SIM
     EC20 <-->|"4G"| 4G
     4G <--> PSTN
-    PSTN <-->|"Calls/SMS"| SIM
+    PSTN -.->|"Calls/SMS"| SIM
+    WD -.->|"cron */2<br/>docker exec"| AS
+    WD --> NA
     F2B -.->|"Ban Brute Force"| AS
     AS -.->|"spool/monitor recordings"| ARC
     ARC ==>|"cp + cmp verify → YYYY-MM/"| NASD
@@ -308,7 +308,7 @@ Pull from GitHub Container Registry instead of building locally:
 docker pull ghcr.io/myleo1/simgo:latest
 
 # Or specific version
-docker pull ghcr.io/myleo1/simgo:1.3
+docker pull ghcr.io/myleo1/simgo:1.4.1
 ```
 
 Then replace the `build` section in `docker-compose.yml` with:
@@ -419,7 +419,7 @@ Maintain it two ways:
 
 ### Why
 
-The chan-quectel driver decides device readiness from the **GSM-domain (2G) registration status**. On operators without a 2G network (e.g. China Unicom), that domain never registers, so the driver occasionally reports `GSM not registered` and blocks calls — even while the module is properly attached to LTE. The watchdog polls the driver state every two minutes, recovers anomalies automatically in stages, and optionally notifies on failure/recovery.
+The chan-quectel driver decides device readiness from the **GSM-domain (2G) registration status**. When the signal is weak or re-camping causes brief fluctuation, that domain may fail to register temporarily, so the driver can report `GSM not registered` and block calls — even while the module is properly attached and registered on LTE. The watchdog polls the driver state every two minutes, recovers anomalies automatically in stages, and optionally notifies on failure/recovery.
 
 ### Automatic recovery
 
@@ -440,7 +440,7 @@ One notification each on failure trigger, escalation and recovery, using the [no
 - If neither channel is configured, logs only
 - During a driver state switch (SIM pulled / manual stop, `State:` carrying a `scheduled` suffix) the watchdog **stays hands-off** and raises a **one-shot** notice "possible SIM removal or manual action"; the marker auto-resets after recovery, so it can notify again next time
 
-> The root fix lives in the upstream chan-quectel driver (which now tracks the LTE domain); this watchdog is a belt-and-suspenders fallback that becomes dormant insurance once the driver upgrade lands.
+> If `GSM not registered` fires frequently, it usually means weak signal: start by optimizing antenna placement / coverage. The watchdog is a safety net — stable signal keeps false alarms to a minimum.
 
 ## Usage
 
@@ -540,12 +540,15 @@ done
 
 ### Q: Randomly shows "GSM not registered" / calls fail?
 
-The driver decides readiness from the GSM-domain (2G) registration status. On operators without 2G (e.g. China Unicom) that domain never registers, and weak signal triggering LTE re-camping can surface a false "not registered" — meanwhile the module is actually attached and registered on LTE (verify with `docker exec simgo asterisk -rx "quectel cmd quectel0 AT+CEREG?"`). The [watchdog](#module-watchdog-self-healing) detects and recovers this automatically and notifies on failure/recovery (if configured); the root fix lives in the upstream chan-quectel driver (LTE-domain registration support).
+The driver decides readiness from the **GSM-domain (2G) registration status**. Weak signal or brief LTE re-camping can trigger a false "not registered" — meanwhile the module is actually attached and registered on LTE (verify with `docker exec simgo asterisk -rx "quectel cmd quectel0 AT+CEREG?"`). The [watchdog](#module-watchdog-self-healing) detects and recovers this automatically and notifies on failure/recovery (if configured); if it fires frequently, improve module signal first (antenna placement / coverage).
 
 ## Project Structure
 
 ```
 SimGo/
+├── .github/                # GitHub Actions
+│   └── workflows/
+│       └── build.yml
 ├── config/                 # Asterisk config templates
 │   ├── pjsip.conf
 │   ├── extensions.conf
@@ -565,29 +568,28 @@ SimGo/
 │   └── .watchdog-state/    # Watchdog state counters (runtime, git ignored)
 ├── docker/                 # Docker files
 │   ├── Dockerfile
-│   └── docker-compose.yml
-├── fail2ban/               # Fail2ban config templates
-│   ├── filter.d/
-│   │   └── asterisk-pjsip.conf
-│   └── jail.d/
-│       └── asterisk-pjsip.local
-├── .github/                # GitHub Actions
-│   └── workflows/
-│       └── build.yml
-├── .simgo-archive.conf      # Recording archive config (generated by setup.sh, git ignored)
-├── setup.sh                # Interactive deploy script
-├── uninstall.sh            # Uninstall script
-├── spool/                  # Runtime data (git ignored)
-│   ├── contacts.csv        # Contact mapping (used in recording filenames)
-│   └── monitor/            # Local recording staging directory
-├── logs/                   # Logs (git ignored, rotated via logrotate)
+│   └── docker-compose.yml   # Compose template (setup.sh generates root docker-compose.yml from it)
 ├── docs/                   # Project documentation
 │   ├── REQUIREMENTS.md
 │   ├── DESIGN.md
 │   ├── TASKS.md
-│   └── PROMPT-RECORD.md
+│   ├── PROMPT.md
+│   ├── PROMPT-RECORD.md
+│   └── PROMPT-WATCHDOG.md
+├── start.sh                # Container entrypoint (renders configs + starts Asterisk)
+├── setup.sh                # Interactive deploy script
+├── uninstall.sh            # Uninstall script
+├── certs/                  # Let's Encrypt TLS certificates (generated by setup.sh)
+├── duckdns-update.sh       # DuckDNS IP update script (generated by setup.sh, cron */5)
+├── docker-compose.yml      # Deployed compose config (generated by setup.sh, git ignored)
+├── .simgo-archive.conf      # Recording archive config (generated by setup.sh, git ignored)
+├── spool/                  # Runtime data (git ignored)
+│   ├── contacts.csv        # Contact mapping (used in recording filenames)
+│   └── monitor/            # Local recording staging directory
+├── logs/                   # Logs (git ignored, rotated via logrotate)
 ├── LICENSE                 # GPL v2 license
-└── README.md
+├── README.md
+└── README.en.md
 ```
 
 ## Credits

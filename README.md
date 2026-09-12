@@ -53,18 +53,20 @@
 ## 架构
 
 ```mermaid
-graph TB
-    subgraph "手机"
+graph LR
+    subgraph PHONE["手机"]
         GW[Groundwire<br/>SIP 客户端]
     end
 
-    subgraph "互联网"
+    subgraph WEB["互联网"]
         TG[Telegram Bot API]
         WX[企业微信 API<br/>可选]
     end
 
-    subgraph "宿主机 (Linux)"
-        subgraph "Docker 容器 (SimGo)"
+    subgraph HOST["宿主机 Linux"]
+        direction TB
+        subgraph CONT["Docker 容器 SimGo"]
+            direction TB
             AS[Asterisk]
             PS[PJSIP<br/>TLS 52060]
             QC[chan-quectel<br/>UAC 音频]
@@ -78,33 +80,31 @@ graph TB
         NASD[归档存储<br/>NAS / 本地磁盘]
     end
 
-    subgraph "硬件"
+    subgraph HARD["硬件"]
         EC20[EC20 4G 模块]
         SIM[SIM 卡]
     end
 
-    subgraph "网络"
+    subgraph CELL["网络"]
         4G[4G 蜂窝网络]
         PSTN[PSTN / 运营商]
     end
 
     GW <-->|"SIP over TLS<br/>SRTP"| AS
-    AS <--> PS
-    AS <--> QC
     BOT <-->|"HTTPS"| TG
     SMS <-->|"HTTPS"| WX
-    WD -.->|"cron */2<br/>docker exec"| AS
-    WD --> NA
     NA -->|"HTTPS"| TG
     NA -->|"HTTPS"| WX
     QC <-->|"USB<br/>AT + 音频"| EC20
     EC20 <--> SIM
     EC20 <-->|"4G"| 4G
     4G <--> PSTN
-    PSTN <-->|"来电/短信"| SIM
+    PSTN -.->|"来电 / 短信"| SIM
+    WD -.->|"cron */2<br/>docker exec"| AS
+    WD --> NA
     F2B -.->|"封禁爆破 IP"| AS
-    AS -.->|"spool/monitor 录音"| ARC
-    ARC ==>|"cp + cmp 校验 → YYYY-MM/"| NASD
+    AS -.->|"spool/monitor<br/>录音"| ARC
+    ARC ==>|"cp + cmp 校验<br/>→ YYYY-MM/"| NASD
 
     style AS fill:#4a90d9,color:#fff
     style EC20 fill:#e74c3c,color:#fff
@@ -308,7 +308,7 @@ docker compose logs -f
 docker pull ghcr.io/myleo1/simgo:latest
 
 # 或指定版本
-docker pull ghcr.io/myleo1/simgo:1.3
+docker pull ghcr.io/myleo1/simgo:1.4.1
 ```
 
 然后在 `docker-compose.yml` 中将 `build` 部分替换为：
@@ -420,7 +420,7 @@ Fork 后也可在 Actions 页面手动触发构建。
 
 ### 为什么需要
 
-chan-quectel 驱动按 **GSM 域（2G）注册状态**判断模块可用性；在无 2G 网络的运营商（如中国联通）下，该域永不注册，偶发误报 `GSM not registered` 并拦截呼叫——即使模块此刻已在 LTE 网络正常驻留。watchdog 每两分钟检测驱动状态，异常时分级自动恢复，异常 / 恢复时可选推送通知。
+chan-quectel 驱动按 **GSM 域（2G）注册状态**判断模块可用性；信号偏弱、驻留 / 重驻留波动时，该域可能短暂注册不上，驱动误报 `GSM not registered` 并拦截呼叫——即使模块此刻已在 LTE 网络正常驻留。watchdog 每两分钟检测驱动状态，异常时分级自动恢复，异常 / 恢复时可选推送通知。
 
 ### 自动恢复
 
@@ -441,7 +441,7 @@ chan-quectel 驱动按 **GSM 域（2G）注册状态**判断模块可用性；�
 - 两渠道都未配置则仅写日志
 - 拔卡 / 手动 stop 等驱动状态切换期间（`State:` 带 `scheduled` 尾缀）watchdog **自动跳过**并做**一次性提示**"疑似拔卡或手动操作"；恢复正常后标记自动复位，下一次可再触发
 
-> 根因修复在上游 chan-quectel 驱动（新增 LTE 域注册判断）；watchdog 是网络层的兜底保险，驱动升级后自动退化为无人值守保障。
+> 若频繁触发 `GSM not registered`，通常信号偏弱所致：优先调整天线位置、检查信号覆盖；watchdog 是兜底保险，信号稳定后误报会降到最低。
 
 ## 使用说明
 
@@ -541,12 +541,15 @@ done
 
 ### Q: 偶尔显示 "GSM not registered" / 打不了电话？
 
-驱动按 GSM 域（2G）注册状态判断模块可用性；在无 2G 的运营商（如中国联通）下，该域永不注册，弱信号导致 LTE 重驻留时会触发误判——此时模块其实仍在 LTE 正常驻留（可 `docker exec simgo asterisk -rx "quectel cmd quectel0 AT+CEREG?"` 复核）。[watchdog](#模块状态监控与自愈watchdog) 会自动检测并恢复，异常 / 恢复会推送通知（如已配置）；根因修复在 chan-quectel 上游驱动（已支持 LTE 域注册）。
+驱动按 **GSM 域（2G）注册状态**判断模块可用性；信号偏弱、LTE 重驻留等瞬时波动会触发误判——此时模块其实仍在 LTE 正常驻留（可 `docker exec simgo asterisk -rx "quectel cmd quectel0 AT+CEREG?"` 复核）。[watchdog](#模块状态监控与自愈watchdog) 会自动检测并恢复，异常 / 恢复会推送通知（如已配置）；若频繁触发，请先改善模块信号（天线位置 / 信号覆盖）。
 
 ## 目录结构
 
 ```
 SimGo/
+├── .github/                # GitHub Actions
+│   └── workflows/
+│       └── build.yml
 ├── config/                 # Asterisk 配置文件模板
 │   ├── pjsip.conf
 │   ├── extensions.conf
@@ -566,27 +569,25 @@ SimGo/
 │   └── .watchdog-state/    # watchdog 状态计数（运行时，git 忽略）
 ├── docker/                 # Docker 相关文件
 │   ├── Dockerfile
-│   └── docker-compose.yml
-├── fail2ban/               # Fail2ban 配置模板
-│   ├── filter.d/
-│   │   └── asterisk-pjsip.conf
-│   └── jail.d/
-│       └── asterisk-pjsip.local
-├── .github/                # GitHub Actions
-│   └── workflows/
-│       └── build.yml
-├── .simgo-archive.conf      # 录音归档配置（setup.sh 生成，git 忽略）
-├── setup.sh                # 交互式部署脚本
-├── uninstall.sh            # 卸载脚本
-├── spool/                  # 运行时数据（git 忽略）
-│   ├── contacts.csv        # 联系人映射（录音文件名用）
-│   └── monitor/            # 录音临时中转目录
-├── logs/                   # 日志（git 忽略，logrotate 轮转）
+│   └── docker-compose.yml   # compose 模板（setup.sh 据此生成根目录 docker-compose.yml）
 ├── docs/                   # 项目文档
 │   ├── REQUIREMENTS.md
 │   ├── DESIGN.md
 │   ├── TASKS.md
-│   └── PROMPT-RECORD.md
+│   ├── PROMPT.md
+│   ├── PROMPT-RECORD.md
+│   └── PROMPT-WATCHDOG.md
+├── start.sh                # 容器启动脚本（渲染配置 + 启动 Asterisk）
+├── setup.sh                # 交互式部署脚本
+├── uninstall.sh            # 卸载脚本
+├── certs/                  # Let's Encrypt TLS 证书（setup.sh 生成）
+├── duckdns-update.sh       # DuckDNS IP 更新脚本（setup.sh 生成，cron */5）
+├── docker-compose.yml      # 已部署的 compose 配置（setup.sh 生成，git 忽略）
+├── .simgo-archive.conf      # 录音归档配置（setup.sh 生成，git 忽略）
+├── spool/                  # 运行时数据（git 忽略）
+│   ├── contacts.csv        # 联系人映射（录音文件名用）
+│   └── monitor/            # 录音临时中转目录
+├── logs/                   # 日志（git 忽略，logrotate 轮转）
 ├── LICENSE                 # GPL v2 许可证
 └── README.md
 ```
