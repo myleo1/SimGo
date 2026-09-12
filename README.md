@@ -420,7 +420,7 @@ Fork 后也可在 Actions 页面手动触发构建。
 
 ### 为什么需要
 
-chan-quectel 驱动按 **GSM 域（2G）注册状态**判断模块可用性；信号偏弱、驻留 / 重驻留波动时，该域可能短暂注册不上，驱动误报 `GSM not registered` 并拦截呼叫——即使模块此刻已在 LTE 网络正常驻留。watchdog 每两分钟检测驱动状态，异常时分级自动恢复，异常 / 恢复时可选推送通知。
+chan-quectel 驱动按 **GSM 域（+CREG）与 LTE 域（+CEREG）任一注册**判断模块可用性（上游已修复）；信号偏弱、驻留 / 重驻留波动导致两域短暂同时未注册时，驱动报告 `GSM not registered` 并拦截呼叫（真实未注册，非误报）。watchdog 每两分钟检测驱动状态，异常时分级自动恢复，异常 / 恢复时可选推送通知。
 
 ### 自动恢复
 
@@ -441,7 +441,7 @@ chan-quectel 驱动按 **GSM 域（2G）注册状态**判断模块可用性；�
 - 两渠道都未配置则仅写日志
 - 拔卡 / 手动 stop 等驱动状态切换期间（`State:` 带 `scheduled` 尾缀）watchdog **自动跳过**并做**一次性提示**"疑似拔卡或手动操作"；恢复正常后标记自动复位，下一次可再触发
 
-> 若频繁触发 `GSM not registered`，通常信号偏弱所致：优先调整天线位置、检查信号覆盖；watchdog 是兜底保险，信号稳定后误报会降到最低。
+> 若频繁触发 `GSM not registered`，通常信号偏弱所致：优先调整天线位置、检查信号覆盖；watchdog 是兜底保险，信号稳定后该状态会自然消失。
 
 ## 使用说明
 
@@ -541,7 +541,7 @@ done
 
 ### Q: 偶尔显示 "GSM not registered" / 打不了电话？
 
-驱动按 **GSM 域（2G）注册状态**判断模块可用性；信号偏弱、LTE 重驻留等瞬时波动会触发误判——此时模块其实仍在 LTE 正常驻留（可 `docker exec simgo asterisk -rx "quectel cmd quectel0 AT+CEREG?"` 复核）。[watchdog](#模块状态监控与自愈watchdog) 会自动检测并恢复，异常 / 恢复会推送通知（如已配置）；若频繁触发，请先改善模块信号（天线位置 / 信号覆盖）。
+驱动按 **GSM 域（+CREG）与 LTE 域（+CEREG）任一注册**判断模块可用性；信号偏弱、驻留 / 重驻留波动导致两域短暂同时未注册时，驱动报告 `GSM not registered`（真实未注册，非误报；可 `docker exec simgo asterisk -rx "quectel at quectel0 AT+CEREG?"` 复核）。[watchdog](#模块状态监控与自愈watchdog) 会自动检测并恢复，异常 / 恢复会推送通知（如已配置）；若频繁触发，请先改善模块信号（天线位置 / 信号覆盖）。
 
 ## 目录结构
 

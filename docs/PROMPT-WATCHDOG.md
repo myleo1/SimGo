@@ -5,7 +5,7 @@
 
 ## 项目概述
 
-SimGo 将 Quectel EC20 4G 模块通过 USB 接入 Linux 主机，运行容器化 Asterisk，手机经 SIP 客户端（Groundwire）远程接打电话。chan-quectel 驱动按 GSM 域（+CREG）判定模块可用性；在无 2G 的运营商（如中国联通）下偶发误报 `GSM not registered` 并拦截呼叫。watchdog 作为通用兜底：监控驱动状态、分级自动恢复、异常/恢复可选推送通知。
+SimGo 将 Quectel EC20 4G 模块通过 USB 接入 Linux 主机，运行容器化 Asterisk，手机经 SIP 客户端（Groundwire）远程接打电话。chan-quectel 驱动按 GSM 域（+CREG）与 LTE 域（+CEREG）任一注册判定模块可用性（上游已修复）；信号偏弱、驻留/重驻留波动导致两域短暂同时未注册时，驱动报告 `GSM not registered` 并拦截呼叫（真实未注册，非误报）。watchdog 用作通用兜底：监控驱动状态、分级自动恢复、异常/恢复可选推送通知。
 
 ## 已有文件（不要修改语义）
 

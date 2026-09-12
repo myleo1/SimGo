@@ -419,7 +419,7 @@ Maintain it two ways:
 
 ### Why
 
-The chan-quectel driver decides device readiness from the **GSM-domain (2G) registration status**. When the signal is weak or re-camping causes brief fluctuation, that domain may fail to register temporarily, so the driver can report `GSM not registered` and block calls — even while the module is properly attached and registered on LTE. The watchdog polls the driver state every two minutes, recovers anomalies automatically in stages, and optionally notifies on failure/recovery.
+The chan-quectel driver decides device readiness from **either the GSM-domain (+CREG) or the LTE-domain (+CEREG) registration** (fixed upstream). When the signal is weak or re-camping causes brief fluctuation, both domains may drop simultaneously; the driver then reports `GSM not registered` and blocks calls — a genuine loss of registration, not a false positive. The watchdog polls the driver state every two minutes, recovers anomalies automatically in stages, and optionally notifies on failure/recovery.
 
 ### Automatic recovery
 
@@ -540,7 +540,7 @@ done
 
 ### Q: Randomly shows "GSM not registered" / calls fail?
 
-The driver decides readiness from the **GSM-domain (2G) registration status**. Weak signal or brief LTE re-camping can trigger a false "not registered" — meanwhile the module is actually attached and registered on LTE (verify with `docker exec simgo asterisk -rx "quectel cmd quectel0 AT+CEREG?"`). The [watchdog](#module-watchdog-self-healing) detects and recovers this automatically and notifies on failure/recovery (if configured); if it fires frequently, improve module signal first (antenna placement / coverage).
+The driver decides readiness from **either the GSM-domain (+CREG) or the LTE-domain (+CEREG) registration**. Weak signal or brief re-camping can make both domains drop simultaneously, so the driver reports `GSM not registered` — a genuine loss of registration, not a false positive (verify with `docker exec simgo asterisk -rx "quectel at quectel0 AT+CEREG?"`). The [watchdog](#module-watchdog-self-healing) detects and recovers this automatically and notifies on failure/recovery (if configured); if it fires frequently, improve module signal first (antenna placement / coverage).
 
 ## Project Structure
 

@@ -95,7 +95,7 @@ iOS 对 VoIP 推送有严格限制：
 
 ### 3.6 模块状态监控与自愈（watchdog）
 
-**动机**：chan-quectel 驱动按 GSM 域（+CREG）判断可用性；在无 2G/GSM 网络的运营商（如联通）下该域永不注册，驱动偶发误报 `GSM not registered` 并拦截呼叫，即使模块已在 LTE 正常驻留。watchdog 提供自动检测、分级恢复与异常通知，作为通用兜底（根因修复在上游驱动）。
+**动机**：chan-quectel 驱动按 GSM 域（+CREG）与 LTE 域（+CEREG）任一注册判断可用性（上游已修复）；信号偏弱、驻留/重驻留波动导致两域短暂同时未注册时，驱动报告 `GSM not registered` 并拦截呼叫（真实未注册，非误报）。watchdog 提供自动检测、分级恢复与异常通知，作为通用兜底。
 
 - 监控 `quectel show device state` 的 `State:` **全部取值**并分类：注册故障 / 初始化故障 / 链路故障处理，托管态与切换中跳过，正常态清计数（详见 DESIGN §18.2）
 - 按故障类型走对应恢复链（轻→重）：注册故障 = `quectel reset` → `AT+CFUN=1,1`；初始化 = `quectel reset`；链路 = `quectel restart now`；链型失败升级告警

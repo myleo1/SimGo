@@ -1174,9 +1174,9 @@ setup.sh 用 `grep -Fq "archive-recordings.sh"` 独立去重（与 DuckDNS cron 
 
 ### 18.1 背景
 
-chan-quectel 驱动的可用性判断 `pvt->gsm_registered` 只跟踪 **GSM 域（+CREG）** 注册状态。在无 2G/GSM 网络的运营商（如中国大陆联通已大面积退网 2G）下，GSM 域永不注册（`+CREG: 2,0`）；即便模块已在 LTE 网络正常驻留（`+CEREG: 0,1`），驱动也会误报 `GSM not registered`，并通过 `ready4voice_call()` 拦截呼叫——表现为偶发"打不了电话/来电不响"。
+chan-quectel 驱动的可用性判断 `pvt->gsm_registered` 由 **GSM 域（+CREG）与 LTE 域（+CEREG）任一注册成功**共同决定（上游驱动该 fork 已修复：就绪 = `gsm_domain_registered || lte_registered`）。在信号偏弱、驻留/重驻留波动导致两域短暂同时未注册时，驱动报告 `GSM not registered` 并通过 `ready4voice_call()` 拦截呼叫——表现为偶发"打不了电话/来电不响"（真实未注册，非驱动误报）。
 
-根因修复位于**上游驱动** asterisk-chan-quectel-lts（新增 LTE 域 `+CEREG` 支持），本 watchdog 是通用兜底：监控异常状态、分级自动恢复、异常/恢复可选推送 Telegram 与企业微信。
+两域任一注册即判可用的修复位于**上游驱动** asterisk-chan-quectel-lts（新增 LTE 域 `+CEREG` 支持），本 watchdog 是通用兜底：监控真实未注册及初始化/链路等异常状态、分级自动恢复、异常/恢复可选推送 Telegram 与企业微信。
 
 ### 18.2 状态全集与分类
 
@@ -1184,7 +1184,7 @@ chan-quectel 驱动的可用性判断 `pvt->gsm_registered` 只跟踪 **GSM 域�
 
 | 分类 | `State:` 取值 | 含义 | watchdog 处置 |
 |------|---------------|------|----------------|
-| 注册故障 | `GSM not registered` | GSM 域未注册（联通等无 2G 环境误报，模块实际已在 LTE） | 恢复链 A |
+| 注册故障 | `GSM not registered` | GSM 与 LTE 两域均未注册（多因信号弱，真实未注册） | 恢复链 A |
 | 初始化故障 | `Not initialized` | 驱动初始化未完成 | 恢复链 B |
 | 链路故障 | `Not connected` | 串口/USB 链路断开或模块无响应 | 恢复链 C |
 | 托管态 | `Stopped`（current==desired 均为 stop） | 用户在 CLI 主动停用设备 | 跳过 |
@@ -1206,11 +1206,11 @@ if(pvt->desired_state != pvt->current_state)                     /* chan_quectel
 - 正常运行时 `current_state` 恒为 `STARTED`：其全部写点只有初始化 `STOPPED`（chan_quectel.c:607）与连接建立同点 `STARTED`（`connected = 1; current_state = STARTED;`，chan_quectel.c:1031-1032），且 `GSM not registered`/`Not initialized` 都只出现在 `connected == 1` 之后 → 故障态下 `desired==current==STARTED` → **无尾缀**；带尾缀只可能出现在拔卡/手动 stop/restart 等驱动自主切换期间。
 - **watchdog 行为**：尾缀 = 驱动自愈正在执行，干涉会与驱动对撞 → `*scheduled* → SKIP` 是刻意设计（scripts/watchdog-quectel.sh 首个分支）。
 
-实测（2026-09，联通 SIM）对照：
+实测（2026-09）对照：
 
 | 真实 `State:` 行 | current/desired | 实况 | 分类 |
 |------------------|-----------------|------|------|
-| `GSM not registered`（无尾缀） | start / start | 有卡在线、GSM 域未注册（联通无 2G） | FAULT_REG → 链 A |
+| `GSM not registered`（无尾缀） | start / start | 有卡在线、两域均未注册（多因信号弱） | FAULT_REG → 链 A |
 | `Not connected Start scheduled` | stop / start | 拔卡，驱动停设备等待重连 | SKIP（不干预） |
 | `GSM not registered Start scheduled` | — | 理论形态（发生即驱动切换中） | SKIP（兜底） |
 | `Not connected`（无尾缀） | — | 边界：驱动在线但链路断开（低频） | FAULT_LINK → 链 C |
@@ -1270,4 +1270,4 @@ if(pvt->desired_state != pvt->current_state)                     /* chan_quectel
 
 - **查询失败不是故障**：`quectel show device state` 或 `docker exec` 返回非零 → 只写日志，不动作、不计次数（避免 asterisk 重启/容器暂不可用导致误 CFUN）。
 - 托管态与执行恢复动作**互斥**：设备处于 `Stopped`/`scheduled` 时绝不动作，避免与用户手动操作对撞。
-- 本 watchdog 只做度量+兜底，**不替代上游驱动修复**；驱动修复到位后该脚本退化为无人值守保险。
+- 本 watchdog 只做度量+兜底，**不替代上游驱动修复**；上游驱动已合并两域（+CREG/+CEREG）判定，本脚本仍作为真实未注册、初始化及链路故障时的无人值守保险。
