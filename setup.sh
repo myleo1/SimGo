@@ -446,6 +446,7 @@ ARCHIVECONF
 info "归档配置已生成: .simgo-archive.conf（ARCHIVE_DIR=${ARCHIVE_DIR:-<未启用>}）"
 
 chmod +x "${SCRIPT_DIR}/scripts/archive-recordings.sh"
+chmod +x "${SCRIPT_DIR}/scripts/watchdog-quectel.sh"
 
 mkdir -p "${SCRIPT_DIR}/spool/monitor"
 info "录音本地中转目录: ${SCRIPT_DIR}/spool/monitor/"
