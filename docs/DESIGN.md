@@ -26,6 +26,12 @@
 │  └──────────────────────────────────────────────┘   │
 │                                                     │
 │  ┌──────────────────────────────────────────────┐   │
+│  │  宿主机 watchdog（cron */2，docker exec CLI）  │   │
+│  │  watchdog-quectel.sh → 轮询驱动状态 / 分级自愈  │   │
+│  │  notify_alarm.py → Telegram / 企业微信告警     │   │
+│  └──────────────────────────────────────────────┘   │
+│                                                     │
+│  ┌──────────────────────────────────────────────┐   │
 │  │         EC20 模块 (USB)                       │   │
 │  │  ttyUSB0: 诊断口                              │   │
 │  │  ttyUSB1: 音频/GPS                            │   │
@@ -50,9 +56,12 @@ SimGo/
 ├── scripts/
 │   ├── sms_notify.py            # 短信通知脚本（TG + 企业微信）
 │   ├── telegram_bot.py          # Bot 主程序
+│   ├── notify_alarm.py          # 模块告警推送（TG + 企业微信，容器内 CLI）
 │   ├── archive-recordings.sh    # 录音归档守护（宿主机侧，--watch/--scan 双模式）
+│   ├── watchdog-quectel.sh      # 模块状态监控与自愈（宿主机侧，cron */2，见 §18）
 │   ├── vcard_to_csv.py          # vCard → contacts.csv 一次性导入工具
-│   └── bot.conf                 # Bot 配置文件（模板）
+│   ├── bot.conf                 # Bot 配置文件（模板）
+│   └── .watchdog-state/         # watchdog 状态计数（运行时，git 忽略）
 ├── docker/
 │   ├── Dockerfile               # 镜像构建文件
 │   └── docker-compose.yml       # 部署配置（模板）
@@ -75,7 +84,7 @@ SimGo/
 └── README.md                    # 项目说明
 
 # 运行时（由 setup.sh 生成/初始化，git 忽略）
-logs/                            # 日志（bind mount 到容器）
+logs/                            # 日志（bind mount 到容器；含 watchdog-quectel.log，logrotate 轮转）
 .simgo-archive.conf              # 录音归档配置（ARCHIVE_DIR / 保留策略，由 archive-recordings.sh 读取）
 spool/                           # Asterisk 运行时数据（bind mount 到容器）
 │   └── contacts.csv             # 联系人映射（运行时文件，从模板复制后维护）
@@ -1160,3 +1169,105 @@ setup.sh 用 `grep -Fq "archive-recordings.sh"` 独立去重（与 DuckDNS cron 
 | iPhone 通讯录自动同步 | 快捷指令定期导出 vCard 上传，宿主机自动拉取转换 | 新增拉取/转换脚本 + 手机端快捷指令，依赖手机端配合 |
 
 两项目前均不实现，`contacts.csv` 格式保持兼容，未来可直接扩展。
+
+## 18. 模块状态监控与自愈（watchdog）
+
+### 18.1 背景
+
+chan-quectel 驱动的可用性判断 `pvt->gsm_registered` 只跟踪 **GSM 域（+CREG）** 注册状态。在无 2G/GSM 网络的运营商（如中国大陆联通已大面积退网 2G）下，GSM 域永不注册（`+CREG: 2,0`）；即便模块已在 LTE 网络正常驻留（`+CEREG: 0,1`），驱动也会误报 `GSM not registered`，并通过 `ready4voice_call()` 拦截呼叫——表现为偶发"打不了电话/来电不响"。
+
+根因修复位于**上游驱动** asterisk-chan-quectel-lts（新增 LTE 域 `+CEREG` 支持），本 watchdog 是通用兜底：监控异常状态、分级自动恢复、异常/恢复可选推送 Telegram 与企业微信。
+
+### 18.2 状态全集与分类
+
+数据来源：`quectel show device state <dev>` 的 `State:` 行（驱动 `pvt_str_state_ex()` 的全部取值，直接枚举，非黑名单式猜测）：
+
+| 分类 | `State:` 取值 | 含义 | watchdog 处置 |
+|------|---------------|------|----------------|
+| 注册故障 | `GSM not registered` | GSM 域未注册（联通等无 2G 环境误报，模块实际已在 LTE） | 恢复链 A |
+| 初始化故障 | `Not initialized` | 驱动初始化未完成 | 恢复链 B |
+| 链路故障 | `Not connected` | 串口/USB 链路断开或模块无响应 | 恢复链 C |
+| 托管态 | `Stopped`（current==desired 均为 stop） | 用户在 CLI 主动停用设备 | 跳过 |
+| 切换中 | 尾巴带 `Stop/Restart/Removal/Start scheduled` | desired≠current，驱动正在切换状态 | 跳过（防对撞） |
+| 正常态 | `Free`、`Ring`、`Waiting`、`Dialing`、`Active N`、`Held N`、`Incoming SMS`、`Outgoing SMS`（可组合 token） | 设备可用或正处于会话/瞬态 | 正常，清故障计数；若之前处于故障则记录恢复 |
+
+> 说明：故障类状态与正常态**互斥出现**（`pvt_state_base()` 优先返回故障态，不再输出业务 token）。`Active N` / `Dialing` 等 token 出现即代表驱动已能识别业务态，属于正常。
+
+#### 状态文本与尾缀语义（源码证据 + 实测）
+
+`State:` 行由 `pvt_str_state_ex()`（chan_quectel.c:1635）生成：
+
+```c
+if(pvt->desired_state != pvt->current_state)                     /* chan_quectel.c:1676 */
+    ast_str_append (&buf, 0, " %s", dev_state2str_msg(pvt->desired_state));
+```
+
+- **尾缀**（`Stop/Restart/Removal/Start scheduled`，chan_quectel.h:56）**仅在 `desired != current` 时附加**，语义 = "驱动正处在状态切换调度中（start/stop/restart 尚未落定）"。
+- 正常运行时 `current_state` 恒为 `STARTED`：其全部写点只有初始化 `STOPPED`（chan_quectel.c:607）与连接建立同点 `STARTED`（`connected = 1; current_state = STARTED;`，chan_quectel.c:1031-1032），且 `GSM not registered`/`Not initialized` 都只出现在 `connected == 1` 之后 → 故障态下 `desired==current==STARTED` → **无尾缀**；带尾缀只可能出现在拔卡/手动 stop/restart 等驱动自主切换期间。
+- **watchdog 行为**：尾缀 = 驱动自愈正在执行，干涉会与驱动对撞 → `*scheduled* → SKIP` 是刻意设计（scripts/watchdog-quectel.sh 首个分支）。
+
+实测（2026-09，联通 SIM）对照：
+
+| 真实 `State:` 行 | current/desired | 实况 | 分类 |
+|------------------|-----------------|------|------|
+| `GSM not registered`（无尾缀） | start / start | 有卡在线、GSM 域未注册（联通无 2G） | FAULT_REG → 链 A |
+| `Not connected Start scheduled` | stop / start | 拔卡，驱动停设备等待重连 | SKIP（不干预） |
+| `GSM not registered Start scheduled` | — | 理论形态（发生即驱动切换中） | SKIP（兜底） |
+| `Not connected`（无尾缀） | — | 边界：驱动在线但链路断开（低频） | FAULT_LINK → 链 C |
+
+> 插卡在线未注册（`GSM not registered` 无尾缀）与拔卡（带 `scheduled` 尾缀）可据此**明确区分**，是 watchdog 不误折腾拔卡的关键。
+
+### 18.3 检测与恢复链路
+
+- **通道**：全部经 `docker exec simgo asterisk -rx "..."`（与 `telegram_bot.py` 同一遥测通道，未引入新端口/挂载）。
+- **并发保护**：脚本入口 `flock`（互斥锁），防止 cron 重入/重叠。
+- **每轮流程**：
+  1. `quectel show devices` 取设备列表（可能多个 `quectel0/quectel1…`，循环处理）
+  2. 逐个 `quectel show device state <dev>`，按 `18.2` 分类
+  3. 依据自愈状态机（`18.4`）决定动作
+- **恢复动作**（全在 asterisk CLI 内，按"由轻到重"执行）：
+
+| 链 | 第 1 步（轻） | 第 2 步（重） | 第 3 步（升级） |
+|----|--------------|--------------|----------------|
+| A 注册故障 | 先同步探针（`quectel at <dev> AT+CEREG?`、`AT+CREG?`，`quectel at <dev> … <timeout_ms>` 同步模式，timeout 5s，解析 `+CEREG: 0,<stat>` 值进日志/通知，**不参与动作判定**）；再 `quectel reset <dev>`（驱动重初始化，不重启模块） | 复查仍故障：`quectel cmd <dev> AT+CFUN=1,1`（模块整体重启） | 仍故障：升级告警（log + 通知） |
+| B 初始化故障 | `quectel reset <dev>`（重跑 init 序列） | — | 仍故障：升级告警（**不做 CFUN**，init 失败不是模块重启能解决的） |
+| C 链路故障 | `quectel restart <now> <dev>`（驱动侧重连） | — | 仍故障：升级告警（**不做 CFUN**，链路层问题需人工/重启容器排查 USB） |
+
+动作执行后立即复查 `State:` 判定成败；恢复动作**必须幂等**。
+
+### 18.4 自愈状态机
+
+- **防抖**：同一设备连续 **2 轮**（每轮 = cron 周期，默认 2 分钟）命中同一类故障才触发恢复链，避免瞬态误动作；命中正常态立即清零计数。
+- **通话保护**：触发任何恢复动作前，先 `asterisk -rx "core show channels count"`，输出表示 `N active channel`（N>0）时有通话 → 本轮跳过且**不清**故障计数（呼叫优先，避免通话中被 CFUN 打断）。
+- **冷却**：设备执行过任意恢复动作后 30 分钟内不再动作（继续检测与记录，只不动手）；防止频繁重启模块。
+- **日上限**：每设备每日动作 ≤ 5 次，超限后当日只记录并升级告警一次。
+- **恢复通知**：设备从故障转为正常态时记录成功；故障触发、升级、恢复三个时点各推送一次通知（若启用）。
+- **状态持久化**：计数/冷却时间存 `scripts/.watchdog-state/<dev>.state`（文本，git 忽略，重启宿主机后自动重算，无需妥善保留）。
+
+### 18.5 通知
+
+- 新增容器内 CLI 脚本 `scripts/notify_alarm.py`：
+  - 用法：`python3 /etc/asterisk/scripts/notify_alarm.py "<标题>" "<正文>"`
+  - 读取容器内 `/etc/asterisk/bot.conf`（start.sh 渲染，含 `BOT_TOKEN`/`CHAT_ID`/`SOCKS5_PROXY`，企微行由 setup.sh 动态注入）
+  - **Telegram**：HTML 消息（同 `telegram_bot.py` 发送风格）；**企业微信**：纯文本（同 `sms_notify.py:send_wechat()` 的 session-cookie API 与占位符跳过逻辑）
+  - 任一通道配置缺失/占位符未替换 → 自动跳过该通道；**两通道全失 → 退出码非 0**（仅记日志，不影响 watchdog 其他流程）
+- **状态切换（拔卡）一次性提示**：当 `State:` 带 `scheduled` 尾缀（拔卡 / 手动 stop-restart 等驱动自主切换期间，见 §18.2）→ 触发**一次性**提示："模块检测到状态切换，疑似拔卡或手动操作"，watchdog 保持静默不干预；**去抖标记** `notified_skip` 已通知后才不再重复推送，恢复正常（`Free`/OK）后自动复位 → 恢复后再次拔卡可再次触发
+- 宿主侧 watchdog 通过 `docker exec simgo python3 /etc/asterisk/scripts/notify_alarm.py ...` 调用。
+- 通知开关：脚本常量 `NOTIFY_ENABLED`（默认 `yes`）。
+
+### 18.6 部署与文件
+
+| 文件 | 动作 | 说明 |
+|------|------|------|
+| `scripts/watchdog-quectel.sh` | 新增 | 宿主侧 watchdog 主脚本（bash，无第三方依赖） |
+| `scripts/notify_alarm.py` | 新增 | 容器内双通道通知 CLI（经 `./scripts` 挂载自动进入容器，无需重建镜像） |
+| `setup.sh` | 扩展 | logrotate 增加 `logs/watchdog-quectel.log` 轮转段（daily/7/compress）；新增 cron 安装步（`*/2`，行尾标记 `# SimGo-watchdog`，uninstall 的 `# SimGo` 通用清理自动覆盖）；`.simgo-manifest` 增加 `cron:` 与 `file:` 条目 |
+| `uninstall.sh` | 不变 | 兼容（cron 按 `# SimGo` 标记删除；manifest 的 `file:` 项删除见 uninstall 现有逻辑核对） |
+| `logs/watchdog-quectel.log` | 新增（运行时） | 轮转规则在 `/etc/logrotate.d/simgo`（随卸载删除） |
+| `scripts/.watchdog-state/` | 新增（运行时，git 忽略） | 防抖计数/冷却状态 |
+
+### 18.7 设计边界（fail-safe 原则）
+
+- **查询失败不是故障**：`quectel show device state` 或 `docker exec` 返回非零 → 只写日志，不动作、不计次数（避免 asterisk 重启/容器暂不可用导致误 CFUN）。
+- 托管态与执行恢复动作**互斥**：设备处于 `Stopped`/`scheduled` 时绝不动作，避免与用户手动操作对撞。
+- 本 watchdog 只做度量+兜底，**不替代上游驱动修复**；驱动修复到位后该脚本退化为无人值守保险。

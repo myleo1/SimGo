@@ -93,7 +93,18 @@ iOS 对 VoIP 推送有严格限制：
 - **健壮性**：归档目录不可用（如底层存储 VM 未启动）时，不影响通话录音（录音暂存本地），存储恢复后自动补归档，不丢录音
 - **日志轮转**：非录音的运营日志（录音归档日志、Asterisk `messages.log` / `queue_log`）由宿主机 `logrotate` 每日轮转——录音日志保留 7 份、Asterisk 日志保留 14 份，gzip 压缩（配置 `/etc/logrotate.d/simgo`，随卸载删除）
 
-### 3.6 未实现需求（Backlog）
+### 3.6 模块状态监控与自愈（watchdog）
+
+**动机**：chan-quectel 驱动按 GSM 域（+CREG）判断可用性；在无 2G/GSM 网络的运营商（如联通）下该域永不注册，驱动偶发误报 `GSM not registered` 并拦截呼叫，即使模块已在 LTE 正常驻留。watchdog 提供自动检测、分级恢复与异常通知，作为通用兜底（根因修复在上游驱动）。
+
+- 监控 `quectel show device state` 的 `State:` **全部取值**并分类：注册故障 / 初始化故障 / 链路故障处理，托管态与切换中跳过，正常态清计数（详见 DESIGN §18.2）
+- 按故障类型走对应恢复链（轻→重）：注册故障 = `quectel reset` → `AT+CFUN=1,1`；初始化 = `quectel reset`；链路 = `quectel restart now`；链型失败升级告警
+- 自愈状态机：连续 2 轮同故障才触发；触发前检查无活跃通话；动作后 30 分钟冷却；每设备每日 ≤5 次动作；计数/冷却落盘持久化（DESIGN §18.4）
+- 通知：新增容器内 `notify_alarm.py` 双通道（Telegram + 企业微信，读 bot.conf），故障触发/升级/恢复各推一次，默认开启可关闭
+- 部署：宿主机 cron 每 2 分钟（标记 `# SimGo-watchdog`），`flock` 防重入；日志与轮转随 `/etc/logrotate.d/simgo`；卸载随 cron 标记与 manifest 清理
+- 约束：查询失败只记不动作；托管/切换状态绝不动作；不影响 `telegram_bot.py` 与既有录音流程语义
+
+### 3.7 未实现需求（Backlog）
 
 以下需求已明确方向但本期不实现，供后续迭代：
 

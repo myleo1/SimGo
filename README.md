@@ -48,6 +48,7 @@
 - **通知中心**：来电 / 短信推送 Telegram（可配企业微信兜底），Bot 支持远程命令
 - **Fail2ban 防护**：自动封禁 SIP 暴力破解 IP（nftables）
 - **一键部署**：setup.sh 一键初始化 DuckDNS TLS 证书、fail2ban、录音归档守护与日志轮转
+- **模块状态监控与自愈（watchdog）**：监控 EC20 驱动状态异常并自动恢复（轻重置→硬重启），异常 / 恢复可选推送 Telegram 与企业微信，详见[模块状态监控与自愈（watchdog）](#模块状态监控与自愈watchdog)
 
 ## 架构
 
@@ -69,9 +70,11 @@ graph TB
             QC[chan-quectel<br/>UAC 音频]
             BOT[telegram_bot.py<br/>通知 & 命令]
             SMS[sms_notify.py<br/>短信通知]
+            NA[notify_alarm.py<br/>告警推送]
         end
         F2B[Fail2ban<br/>防护]
         ARC[archive-recordings.sh<br/>录音归档守护]
+        WD[watchdog-quectel.sh<br/>模块状态监控]
         NASD[归档存储<br/>NAS / 本地磁盘]
     end
 
@@ -90,6 +93,10 @@ graph TB
     AS <--> QC
     BOT <-->|"HTTPS"| TG
     SMS <-->|"HTTPS"| WX
+    WD -.->|"cron */2<br/>docker exec"| AS
+    WD --> NA
+    NA -->|"HTTPS"| TG
+    NA -->|"HTTPS"| WX
     QC <-->|"USB<br/>AT + 音频"| EC20
     EC20 <--> SIM
     EC20 <-->|"4G"| 4G
@@ -409,6 +416,33 @@ Fork 后也可在 Actions 页面手动触发构建。
 >
 > `logs/` 下的日志由宿主机 `logrotate` 每日自动轮转：录音归档日志保留 7 份、Asterisk（`messages.log` / `queue_log`）保留 14 份，均 gzip 压缩（配置 `/etc/logrotate.d/simgo`，随卸载删除）。
 
+## 模块状态监控与自愈（watchdog）
+
+### 为什么需要
+
+chan-quectel 驱动按 **GSM 域（2G）注册状态**判断模块可用性；在无 2G 网络的运营商（如中国联通）下，该域永不注册，偶发误报 `GSM not registered` 并拦截呼叫——即使模块此刻已在 LTE 网络正常驻留。watchdog 每两分钟检测驱动状态，异常时分级自动恢复，异常 / 恢复时可选推送通知。
+
+### 自动恢复
+
+- 检测 `quectel show device state` 的 `State:` **全部状态**并分类：注册故障 / 初始化故障 / 链路故障分别走"轻→重"恢复链：
+  - 注册故障：`quectel reset`（驱动重初始化）→ 复查仍异常 → `AT+CFUN=1,1`（模块重启）
+  - 初始化故障：仅 `quectel reset`
+  - 链路故障：仅 `quectel restart now`
+- 连续 2 轮异常才动作（防抖）；有活跃通话时不动手；动作后 30 分钟冷却；每设备每日最多 5 次
+- 拔卡 / 手动 stop 等驱动状态切换期间（`State:` 带 `scheduled` 尾缀，表示 `desired != current`）watchdog **自动跳过**，不干预驱动自愈
+- 状态计数存 `scripts/.watchdog-state/`；诊断日志 `logs/watchdog-quectel.log`（logrotate 每日轮转，保留 7 份）
+
+### 通知（可选）
+
+故障触发 / 升级 / 恢复各推送一次，渠道复用下方[通知渠道](#通知渠道)：
+
+- **Telegram**：配置了 `TG_BOT_TOKEN` 即推送
+- **企业微信**：配置了 `WECHAT_WORK_*` 三项即作为兜底推送
+- 两渠道都未配置则仅写日志
+- 拔卡 / 手动 stop 等驱动状态切换期间（`State:` 带 `scheduled` 尾缀）watchdog **自动跳过**并做**一次性提示**"疑似拔卡或手动操作"；恢复正常后标记自动复位，下一次可再触发
+
+> 根因修复在上游 chan-quectel 驱动（新增 LTE 域注册判断）；watchdog 是网络层的兜底保险，驱动升级后自动退化为无人值守保障。
+
 ## 使用说明
 
 ### Telegram Bot 命令
@@ -505,6 +539,10 @@ for port in /dev/ttyUSB*; do
 done
 ```
 
+### Q: 偶尔显示 "GSM not registered" / 打不了电话？
+
+驱动按 GSM 域（2G）注册状态判断模块可用性；在无 2G 的运营商（如中国联通）下，该域永不注册，弱信号导致 LTE 重驻留时会触发误判——此时模块其实仍在 LTE 正常驻留（可 `docker exec simgo asterisk -rx "quectel cmd quectel0 AT+CEREG?"` 复核）。[watchdog](#模块状态监控与自愈watchdog) 会自动检测并恢复，异常 / 恢复会推送通知（如已配置）；根因修复在 chan-quectel 上游驱动（已支持 LTE 域注册）。
+
 ## 目录结构
 
 ```
@@ -517,12 +555,15 @@ SimGo/
 │   ├── modules.conf
 │   ├── rtp.conf
 │   └── contacts.csv.example # 联系人映射模板（复制为 spool/contacts.csv）
-├── scripts/                # 通知、Bot 与录音脚本
+├── scripts/                # 通知、Bot、录音与模块监控脚本
 │   ├── sms_notify.py
 │   ├── telegram_bot.py
+│   ├── notify_alarm.py     # 告警推送（Telegram + 企业微信，容器内 CLI）
 │   ├── bot.conf            # Bot 配置文件（模板）
 │   ├── archive-recordings.sh # 录音归档守护（--watch/--scan）
-│   └── vcard_to_csv.py     # iPhone 通讯录 vCard → contacts.csv 导入工具
+│   ├── watchdog-quectel.sh # 模块状态监控与自愈（宿主机侧，cron */2）
+│   ├── vcard_to_csv.py     # iPhone 通讯录 vCard → contacts.csv 导入工具
+│   └── .watchdog-state/    # watchdog 状态计数（运行时，git 忽略）
 ├── docker/                 # Docker 相关文件
 │   ├── Dockerfile
 │   └── docker-compose.yml
@@ -540,6 +581,7 @@ SimGo/
 ├── spool/                  # 运行时数据（git 忽略）
 │   ├── contacts.csv        # 联系人映射（录音文件名用）
 │   └── monitor/            # 录音临时中转目录
+├── logs/                   # 日志（git 忽略，logrotate 轮转）
 ├── docs/                   # 项目文档
 │   ├── REQUIREMENTS.md
 │   ├── DESIGN.md

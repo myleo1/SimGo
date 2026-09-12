@@ -3,6 +3,7 @@
 duckdns-update.sh
 .simgo-manifest
 .simgo-archive.conf
+scripts/.watchdog-state/
 
 # 证书、日志和运行时数据
 certs/

@@ -48,6 +48,7 @@ Different Linux distros ship vastly different Asterisk versions, and compiling c
 - **Notifications**: Calls & SMS pushed to Telegram (WeChat Work as fallback), bot supports remote commands
 - **Fail2ban protection**: Auto-bans SIP brute-force IPs (nftables)
 - **One-command setup**: setup.sh initializes DuckDNS TLS certificates, fail2ban, recording archiver and log rotation
+- **Module watchdog (self-healing)**: Monitors EC20 driver state anomalies and recovers them automatically (soft reset → hard reboot); optionally notifies Telegram and WeChat Work on failure/recovery. See [Module watchdog (self-healing)](#module-watchdog-self-healing)
 
 ## Architecture
 
@@ -69,9 +70,11 @@ graph TB
             QC[chan-quectel<br/>UAC Audio]
             BOT[telegram_bot.py<br/>Notifications & Commands]
             SMS[sms_notify.py<br/>SMS Notifications]
+            NA[notify_alarm.py<br/>Alarm Notifications]
         end
         F2B[Fail2ban<br/>Protection]
         ARC[archive-recordings.sh<br/>Recording Archive Daemon]
+        WD[watchdog-quectel.sh<br/>Module Watchdog]
         NASD[Archive Storage<br/>NAS / Local Disk]
     end
 
@@ -90,6 +93,10 @@ graph TB
     AS <--> QC
     BOT <-->|"HTTPS"| TG
     SMS <-->|"HTTPS"| WX
+    WD -.->|"cron */2<br/>docker exec"| AS
+    WD --> NA
+    NA -->|"HTTPS"| TG
+    NA -->|"HTTPS"| WX
     QC <-->|"USB<br/>AT + Audio"| EC20
     EC20 <--> SIM
     EC20 <-->|"4G"| 4G
@@ -408,6 +415,33 @@ Maintain it two ways:
 >
 > `logs/` is rotated daily on the host by `logrotate`: 7 copies for the recording archive log and 14 copies for Asterisk (`messages.log` / `queue_log`), gzip-compressed (config `/etc/logrotate.d/simgo`, removed on uninstall).
 
+## Module Watchdog (Self-Healing)
+
+### Why
+
+The chan-quectel driver decides device readiness from the **GSM-domain (2G) registration status**. On operators without a 2G network (e.g. China Unicom), that domain never registers, so the driver occasionally reports `GSM not registered` and blocks calls — even while the module is properly attached to LTE. The watchdog polls the driver state every two minutes, recovers anomalies automatically in stages, and optionally notifies on failure/recovery.
+
+### Automatic recovery
+
+- Checks **every** possible `State:` value of `quectel show device state` and classifies it: registration / initialization / link-layer failures each get a light-to-heavy recovery chain:
+  - Registration failure: `quectel reset` (re-initialize driver) → if still failing → `AT+CFUN=1,1` (module reboot)
+  - Initialization failure: `quectel reset` only
+  - Link-layer failure: `quectel restart now` only
+- Requires 2 consecutive failing polls before acting (debounce); never acts while a call is active; 30-minute cool-down after an action; max 5 actions per device per day
+- States that carry a `scheduled` suffix (SIM removed, manual stop, etc. — meaning `desired != current` while the driver is switching states) are **skipped** on purpose, to avoid interfering with the driver's own self-healing
+- State is persisted under `scripts/.watchdog-state/`; diagnostics go to `logs/watchdog-quectel.log` (rotated daily, 7 copies)
+
+### Notifications (optional)
+
+One notification each on failure trigger, escalation and recovery, using the [notification channels](#notification-channels) below:
+
+- **Telegram**: sent when `TG_BOT_TOKEN` is configured
+- **WeChat Work**: sent as a fallback when all three `WECHAT_WORK_*` variables are configured
+- If neither channel is configured, logs only
+- During a driver state switch (SIM pulled / manual stop, `State:` carrying a `scheduled` suffix) the watchdog **stays hands-off** and raises a **one-shot** notice "possible SIM removal or manual action"; the marker auto-resets after recovery, so it can notify again next time
+
+> The root fix lives in the upstream chan-quectel driver (which now tracks the LTE domain); this watchdog is a belt-and-suspenders fallback that becomes dormant insurance once the driver upgrade lands.
+
 ## Usage
 
 ### Telegram Bot Commands
@@ -504,6 +538,10 @@ for port in /dev/ttyUSB*; do
 done
 ```
 
+### Q: Randomly shows "GSM not registered" / calls fail?
+
+The driver decides readiness from the GSM-domain (2G) registration status. On operators without 2G (e.g. China Unicom) that domain never registers, and weak signal triggering LTE re-camping can surface a false "not registered" — meanwhile the module is actually attached and registered on LTE (verify with `docker exec simgo asterisk -rx "quectel cmd quectel0 AT+CEREG?"`). The [watchdog](#module-watchdog-self-healing) detects and recovers this automatically and notifies on failure/recovery (if configured); the root fix lives in the upstream chan-quectel driver (LTE-domain registration support).
+
 ## Project Structure
 
 ```
@@ -516,12 +554,15 @@ SimGo/
 │   ├── modules.conf
 │   ├── rtp.conf
 │   └── contacts.csv.example # Contact mapping template (copied to spool/contacts.csv)
-├── scripts/                # Notification, bot and recording scripts
+├── scripts/                # Notification, bot, recording and watchdog scripts
 │   ├── sms_notify.py
 │   ├── telegram_bot.py
+│   ├── notify_alarm.py     # Alarm notifications (Telegram + WeChat Work, container-side CLI)
 │   ├── bot.conf            # Bot config template
 │   ├── archive-recordings.sh # Recording archive daemon (--watch/--scan)
-│   └── vcard_to_csv.py     # iPhone vCard → contacts.csv import tool
+│   ├── watchdog-quectel.sh # Module state monitor & self-heal (host side, cron */2)
+│   ├── vcard_to_csv.py     # iPhone vCard → contacts.csv import tool
+│   └── .watchdog-state/    # Watchdog state counters (runtime, git ignored)
 ├── docker/                 # Docker files
 │   ├── Dockerfile
 │   └── docker-compose.yml
@@ -539,6 +580,7 @@ SimGo/
 ├── spool/                  # Runtime data (git ignored)
 │   ├── contacts.csv        # Contact mapping (used in recording filenames)
 │   └── monitor/            # Local recording staging directory
+├── logs/                   # Logs (git ignored, rotated via logrotate)
 ├── docs/                   # Project documentation
 │   ├── REQUIREMENTS.md
 │   ├── DESIGN.md

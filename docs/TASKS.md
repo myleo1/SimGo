@@ -168,6 +168,37 @@
 - [ ] 停掉归档存储 VM，再打一通：录音留在本地，恢复后 5 分钟内自动补归档
 - [ ] `cmp` 校验失败场景（可选）：手动制造差异，确认本地保留 + 日志记录
 
+## 阶段七：模块状态监控与自愈（watchdog）
+
+### 7.1 scripts/watchdog-quectel.sh（新增，宿主机）
+- [ ] `flock` 防重入；`quectel show devices` 枚举设备，逐个解析 `State:` 行
+- [ ] 全状态分类：注册故障 / 初始化故障 / 链路故障走对应恢复链；托管态、`scheduled` 尾缀跳过；正常态清计数
+- [ ] 自愈状态机：连续 2 轮同故障触发、通话保护（`core show channels count`）、30 分钟冷却、每日 ≤5 次、计数落盘 `scripts/.watchdog-state/`
+- [ ] 恢复动作幂等且"轻→重"，执行后立即复查；升级失败只记+通知
+- [ ] 查询失败（asterisk 不可用）只记日志不动作；日志写 `logs/watchdog-quectel.log`
+
+### 7.2 scripts/notify_alarm.py（新增，容器内）
+- [ ] CLI：`notify_alarm.py "<标题>" "<正文>"`，读 `/etc/asterisk/bot.conf`
+- [ ] Telegram（HTML）+ 企业微信（纯文本 session-cookie）双通道；通道配置缺失/占位符未替换自动跳过；全失败退出码非 0
+- [ ] 经 `./scripts` 挂载进容器（`/etc/asterisk/scripts/`），无需重建镜像
+
+### 7.3 setup.sh 扩展
+- [ ] logrotate 追加 `logs/watchdog-quectel.log`（daily/7/compress）
+- [ ] 新增 cron 安装步：`*/2 * * * * ${SCRIPT_DIR}/scripts/watchdog-quectel.sh >/dev/null 2>&1 # SimGo-watchdog`（防重复添加）
+- [ ] `.simgo-manifest` 增加对应 `cron:` 与 `file:` 条目；校验 uninstall 清理覆盖（`# SimGo` 标记 + manifest）
+
+### 7.4 文档同步
+- [ ] REQUIREMENTS.md（§3.6 watchdog，原 Backlog 顺延 §3.7）
+- [ ] DESIGN.md（§18 章节）
+- [ ] README.md / README.en.md（功能特性 + 新小节 + FAQ）
+- [ ] PROMPT-WATCHDOG.md（迭代 prompt，以 DESIGN §18 为唯一事实来源）
+
+### 7.5 测试
+- [ ] `bash -n` + mock 场景：正常态、注册故障（reset→复查→CFUN）、初始化故障（reset→告警）、链路故障（restart→告警）、通话中跳过、asterisk 查询失败只记不动作
+- [ ] 通知脚本 mock：Telegram 可用 / 企微可用 / 双通道全失败退出码
+- [ ] 防抖与冷却：连续 2 轮才触发；动作后 30 分钟冷却不重复动作
+- [ ] 恢复后清计数并推送"恢复"通知
+
 ## 优先级
 
 | 优先级 | 任务 | 说明 |

@@ -477,6 +477,16 @@ ${SCRIPT_DIR}/logs/messages.log ${SCRIPT_DIR}/logs/queue_log {
     notifempty
     copytruncate
 }
+
+# 模块状态监控 watchdog（宿主侧，cron 由 SimGo-watchdog 标记管理）
+${SCRIPT_DIR}/logs/watchdog-quectel.log {
+    daily
+    rotate 7
+    compress
+    missingok
+    notifempty
+    create 0644 root root
+}
 LOGEOF
 info "日志轮转已配置: /etc/logrotate.d/simgo（录音 7 份 / Asterisk 14 份，gzip）"
 
@@ -526,6 +536,20 @@ fi
 echo ""
 
 # ============================================================
+# 步骤 18b: 安装模块状态监控 watchdog cron
+# ============================================================
+
+info "安装模块状态监控 watchdog cron..."
+WATCHDOG_CRON="*/2 * * * * ${SCRIPT_DIR}/scripts/watchdog-quectel.sh >/dev/null 2>&1 # SimGo-watchdog"
+if ! crontab -l 2>/dev/null | grep -Fq "watchdog-quectel.sh"; then
+    (crontab -l 2>/dev/null; echo "$WATCHDOG_CRON") | crontab -
+    info "watchdog cron 已添加（每 2 分钟）"
+else
+    warn "watchdog cron 已存在，跳过"
+fi
+echo ""
+
+# ============================================================
 # 步骤 19: 生成 .simgo-manifest
 # ============================================================
 
@@ -535,9 +559,12 @@ cat > "$MANIFEST" <<MANEOF
 cron:*/5 * * * * ${SCRIPT_DIR}/duckdns-update.sh
 cron:${SCRIPT_DIR}/scripts/archive-recordings.sh --watch
 cron:${SCRIPT_DIR}/scripts/archive-recordings.sh --scan
+cron:*/2 * * * * ${SCRIPT_DIR}/scripts/watchdog-quectel.sh >/dev/null 2>&1 # SimGo-watchdog
 file:${SCRIPT_DIR}/duckdns-update.sh
 file:${SCRIPT_DIR}/docker-compose.yml
 file:${SCRIPT_DIR}/.simgo-archive.conf
+file:${SCRIPT_DIR}/scripts/watchdog-quectel.sh
+file:${SCRIPT_DIR}/scripts/notify_alarm.py
 file:${SCRIPT_DIR}/spool/contacts.csv
 file:/etc/fail2ban/filter.d/asterisk-pjsip.conf
 file:/etc/fail2ban/jail.d/asterisk-pjsip.local
