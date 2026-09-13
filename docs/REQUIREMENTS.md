@@ -103,6 +103,7 @@ iOS 对 VoIP 推送有严格限制：
 - 通知：新增容器内 `notify_alarm.py` 双通道（Telegram + 企业微信，读 bot.conf），故障触发/升级/恢复各推一次，默认开启可关闭
 - 部署：宿主机 cron 每 2 分钟（标记 `# SimGo-watchdog`），`flock` 防重入；日志与轮转随 `/etc/logrotate.d/simgo`；卸载随 cron 标记与 manifest 清理
 - 约束：查询失败只记不动作；托管/切换状态绝不动作；不影响 `telegram_bot.py` 与既有录音流程语义
+- call waiting 对齐（保活）：每轮取 `quectel show device state` 的 `Call Waiting:` 行，与 `config/quectel.conf` 全局 `[defaults]` 的 `callwaiting` 意图对齐（意图 `yes` 且运行时 `Disabled` → `quectel callwaiting enable <dev>`；意图 `no` 且运行时 `Enabled` → `disable`）；轻量幂等、每轮执行、独立于防抖/冷却/日上限；托管态跳过；只记日志不推送；解析失败不动作（详见 DESIGN §18.3）
 
 ### 3.7 未实现需求（Backlog）
 

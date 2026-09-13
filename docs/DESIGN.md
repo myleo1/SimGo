@@ -1233,6 +1233,8 @@ if(pvt->desired_state != pvt->current_state)                     /* chan_quectel
 
 动作执行后立即复查 `State:` 判定成败；恢复动作**必须幂等**。
 
+**Call waiting 对齐（保活）**：`State:` 行不反映 call waiting 状态。每轮从同一条 `quectel show device state <dev>` 输出另取 `Call Waiting:` 行（`Enabled`/`Disabled`），与 `config/quectel.conf` **全局 `[defaults]`** 段的 `callwaiting` 意图对齐（不做设备段覆盖，配置缺失按 `yes`）：意图 `yes` 且运行时 `Disabled` → `quectel callwaiting enable <dev>`；意图 `no` 且运行时 `Enabled` → `quectel callwaiting disable <dev>`。命令轻量幂等，每轮执行，独立于防抖/冷却/日上限；`scheduled`/`Stopped` 托管态跳过（与 18.2 手的让位原则一致）；只记日志、不推送；`Call Waiting:` 解析失败只记日志不动作。
+
 ### 18.4 自愈状态机
 
 - **防抖**：同一设备连续 **2 轮**（每轮 = cron 周期，默认 2 分钟）命中同一类故障才触发恢复链，避免瞬态误动作；命中正常态立即清零计数。

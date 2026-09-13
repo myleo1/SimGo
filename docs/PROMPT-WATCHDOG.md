@@ -57,6 +57,7 @@ SimGo 将 Quectel EC20 4G 模块通过 USB 接入 Linux 主机，运行容器化
 - **日上限**：每设备每日动作 ≤ `DAILY_MAX=5`，超限当日只记 ERROR 并通知一次。
 - **flock 防重入**：入口对锁文件（如 `/tmp/simgo-watchdog.lock`）`flock -n`，拿不到直接退出 0。
 - **查询失败**：`docker exec` 或 CLI 返回非零 / 空输出 → 只写日志，不动作、不计次数。
+- **call waiting 对齐（保活）**：每轮取 `quectel show device state <dev>` 的 `Call Waiting:` 行，与 `config/quectel.conf` 全局 `[defaults]` 的 `callwaiting` 意图对齐——意图 `yes` 且运行时 `Disabled` → `quectel callwaiting enable <dev>`；意图 `no` 且运行时 `Enabled` → `quectel callwaiting disable <dev>`。轻量幂等，每轮执行，独立于防抖/冷却/日上限；`scheduled`/`Stopped` 托管态跳过；只记日志不通知；解析失败只日志不动作。
 
 ### 4. 通知（scripts/notify_alarm.py）
 

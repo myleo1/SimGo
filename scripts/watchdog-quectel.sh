@@ -41,6 +41,44 @@ fetch_state() {
 		head -n 1
 }
 
+# Fetch the Call Waiting status line for a device ("Enabled"/"Disabled").
+# Empty output -> query failure.
+fetch_callwaiting() {
+	local dev="$1"
+	run_asterisk "quectel show device state ${dev}" |
+		sed -n 's/^[[:space:]]*Call Waiting[[:space:]]*:[[:space:]]*\(.*\)$/\1/p' |
+		head -n 1
+}
+
+# Resolve the configured callwaiting intent from config/quectel.conf.
+# Only the global [defaults] section is consulted (no per-device override),
+# which matches how the template is shipped. Missing option -> "yes";
+# values are normalized with ast_true-like semantics, anything that is not
+# clearly true (yes/y/true/on/1, case-insensitive) is treated as "no".
+config_callwaiting() {
+	local cfg="${SIMGO_ROOT}/config/quectel.conf" section val line
+	val=""
+	[ -f "$cfg" ] || { echo "yes"; return 0; }
+	section=""
+	while IFS= read -r line || [ -n "$line" ]; do
+		line="${line%%;*}"                        # strip trailing ';' comment
+		line="$(printf '%s' "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+		[ -n "$line" ] || continue
+		case "$line" in
+			'[defaults]')  section="defaults" ;;
+			'['*)          section="" ;;
+			callwaiting=*) [ "${section}" = "defaults" ] && val="${line#callwaiting=}" ;;
+		esac
+	done < "$cfg"
+	if [ -z "$val" ]; then
+		echo "yes"
+	elif printf '%s' "${val}" | grep -qiE '^(yes|y|true|on|1)$'; then
+		echo "yes"
+	else
+		echo "no"
+	fi
+}
+
 # Classify a State value into: SKIP / FAULT_REG / FAULT_INIT / FAULT_LINK / OK
 #
 # State = 主体（pvt_state_base()）+ 可选尾缀。尾缀 Stop/Restart/Removal/Start scheduled
@@ -188,6 +226,35 @@ process_device() {
 		fi
 	elif [ "$(state_read "$sfile" notified_skip)" = "1" ]; then
 		state_set "$sfile" notified_skip 0
+	fi
+
+	# Call waiting: keep the runtime state aligned with the configured intent
+	# (config/quectel.conf [defaults] callwaiting). The module occasionally
+	# drifts away from the intended On/Off setting, which State: does not
+	# reflect. Light-weight idempotent re-align on every cycle; skipped while
+	# hands-off; log-only (no notification) and independent of the debounce /
+	# cooldown / daily-budget machinery.
+	if [ "${class}" != "SKIP" ]; then
+		local cw cfg_cw
+		cw="$(fetch_callwaiting "$dev")"
+		cfg_cw="$(config_callwaiting)"
+		case "${cw}" in
+			Disabled)
+				if [ "${cfg_cw}" = "yes" ]; then
+					log_msg "WARN" "$dev" "call waiting is Disabled but config intent is yes, re-enabling"
+					run_asterisk "quectel callwaiting enable ${dev}" >/dev/null
+				fi
+				;;
+			Enabled)
+				if [ "${cfg_cw}" != "yes" ]; then
+					log_msg "WARN" "$dev" "call waiting is Enabled but config intent is no, disabling"
+					run_asterisk "quectel callwaiting disable ${dev}" >/dev/null
+				fi
+				;;
+			*)
+				log_msg "WARN" "$dev" "call waiting status query failed, skip"
+				;;
+		esac
 	fi
 
 	case "${class}" in
